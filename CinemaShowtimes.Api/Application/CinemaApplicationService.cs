@@ -95,7 +95,7 @@ public sealed class CinemaApplicationService(CinemaDbContext dbContext, TimeProv
             TimeZoneInfo.ConvertTime(showtime.StartTime, CinemaTimeZone).DateTime);
     }
 
-    public async Task<ReservationResponse> CreateReservationAsync(
+    public Task<ReservationResponse> CreateReservationAsync(
         int showtimeId,
         CreateReservationRequest request,
         CancellationToken cancellationToken)
@@ -105,12 +105,40 @@ public sealed class CinemaApplicationService(CinemaDbContext dbContext, TimeProv
             throw CinemaApplicationException.Invalid("At least one seat must be selected.");
         }
 
-        if (request.SeatIds.Any(seatId => seatId <= 0))
+        return CreateReservationCoreAsync(showtimeId, request.SeatIds, null, cancellationToken);
+    }
+
+    public Task<ReservationResponse> CreateContiguousReservationAsync(
+        int showtimeId,
+        int count,
+        CancellationToken cancellationToken)
+    {
+        if (count <= 0)
+        {
+            throw CinemaApplicationException.Invalid("Seat count must be greater than zero.");
+        }
+
+        return CreateReservationCoreAsync(showtimeId, null, count, cancellationToken);
+    }
+
+    private async Task<ReservationResponse> CreateReservationCoreAsync(
+        int showtimeId,
+        IReadOnlyList<int>? requestedSeatIds,
+        int? contiguousSeatCount,
+        CancellationToken cancellationToken)
+    {
+        if (requestedSeatIds is not null && requestedSeatIds.Count == 0)
+        {
+            throw CinemaApplicationException.Invalid("At least one seat must be selected.");
+        }
+
+        if (requestedSeatIds?.Any(seatId => seatId <= 0) == true)
         {
             throw CinemaApplicationException.Invalid("Seat IDs must be positive integers.");
         }
 
-        if (request.SeatIds.Distinct().Count() != request.SeatIds.Count)
+        if (requestedSeatIds is not null
+            && requestedSeatIds.Distinct().Count() != requestedSeatIds.Count)
         {
             throw CinemaApplicationException.Invalid("Seat IDs must not contain duplicates.");
         }
@@ -134,47 +162,47 @@ public sealed class CinemaApplicationService(CinemaDbContext dbContext, TimeProv
             throw CinemaApplicationException.NotFound($"Showtime with ID {showtimeId} was not found.");
         }
 
+        if (requestedSeatIds is null)
+        {
+            var auditoriumSeats = await dbContext.Seats
+                .AsNoTracking()
+                .Where(seat => seat.AuditoriumId == showtime.AuditoriumId)
+                .OrderBy(seat => seat.Row)
+                .ThenBy(seat => seat.Number)
+                .Select(seat => new SeatCandidate(seat.Id, seat.Row, seat.Number))
+                .ToListAsync(cancellationToken);
+            if (contiguousSeatCount > auditoriumSeats.Count)
+            {
+                throw CinemaApplicationException.Conflict(
+                    $"No contiguous block of {contiguousSeatCount} available seats exists.");
+            }
+
+            var currentAssignments = await dbContext.ShowtimeSeats
+                .AsNoTracking()
+                .Include(seat => seat.CurrentReservation)
+                .Where(seat => seat.ShowtimeId == showtimeId)
+                .ToDictionaryAsync(seat => seat.SeatId, cancellationToken);
+
+            requestedSeatIds = FindContiguousAvailableSeats(
+                auditoriumSeats,
+                currentAssignments,
+                contiguousSeatCount!.Value,
+                now);
+            if (requestedSeatIds.Count != contiguousSeatCount)
+            {
+                throw CinemaApplicationException.Conflict(
+                    $"No contiguous block of {contiguousSeatCount} available seats exists.");
+            }
+        }
+
         var requestedSeats = await dbContext.Seats
-            .Where(seat => request.SeatIds.Contains(seat.Id)
+            .Where(seat => requestedSeatIds.Contains(seat.Id)
                 && seat.AuditoriumId == showtime.AuditoriumId)
             .ToListAsync(cancellationToken);
-        if (requestedSeats.Count != request.SeatIds.Count)
+        if (requestedSeats.Count != requestedSeatIds.Count)
         {
             throw CinemaApplicationException.Invalid(
                 "Every seat must exist and belong to the showtime's auditorium.");
-        }
-
-        var showtimeSeats = await dbContext.ShowtimeSeats
-            .Include(item => item.CurrentReservation)
-            .Where(item => item.ShowtimeId == showtimeId && request.SeatIds.Contains(item.SeatId))
-            .ToListAsync(cancellationToken);
-
-        var showtimeSeatIds = showtimeSeats.Select(item => item.SeatId).ToHashSet();
-        var missingShowtimeSeats = request.SeatIds
-            .Where(seatId => !showtimeSeatIds.Contains(seatId))
-            .Select(seatId => new ShowtimeSeat { ShowtimeId = showtimeId, SeatId = seatId })
-            .ToArray();
-        if (missingShowtimeSeats.Length > 0)
-        {
-            dbContext.ShowtimeSeats.AddRange(missingShowtimeSeats);
-            showtimeSeats.AddRange(missingShowtimeSeats);
-        }
-
-        foreach (var seat in showtimeSeats)
-        {
-            var currentReservation = seat.CurrentReservation;
-            if (currentReservation?.Status == ReservationStatus.Confirmed)
-            {
-                throw CinemaApplicationException.Conflict(
-                    $"Seat {seat.SeatId} has already been sold for this showtime.");
-            }
-
-            if (currentReservation?.Status == ReservationStatus.Reserved
-                && now < currentReservation.ExpiresAt)
-            {
-                throw CinemaApplicationException.Conflict(
-                    $"Seat {seat.SeatId} is currently reserved.");
-            }
         }
 
         var reservation = new Reservation
@@ -188,14 +216,40 @@ public sealed class CinemaApplicationService(CinemaDbContext dbContext, TimeProv
         dbContext.Reservations.Add(reservation);
         await dbContext.SaveChangesAsync(cancellationToken);
 
-        foreach (var showtimeSeat in showtimeSeats)
+        foreach (var seatId in requestedSeatIds)
         {
-            showtimeSeat.CurrentReservation = reservation;
+            var rowsAffected = await dbContext.Database.ExecuteSqlInterpolatedAsync($"""
+                INSERT INTO "ShowtimeSeats" ("ShowtimeId", "SeatId", "CurrentReservationId")
+                VALUES ({showtimeId}, {seatId}, {reservation.Id})
+                ON CONFLICT ("ShowtimeId", "SeatId") DO UPDATE
+                SET "CurrentReservationId" = excluded."CurrentReservationId"
+                WHERE "ShowtimeSeats"."CurrentReservationId" IS NULL
+                   OR EXISTS (
+                       SELECT 1
+                       FROM "Reservations" AS currentReservation
+                       WHERE currentReservation."Id" = "ShowtimeSeats"."CurrentReservationId"
+                         AND currentReservation."ShowtimeId" = "ShowtimeSeats"."ShowtimeId"
+                         AND (
+                             currentReservation."Status" = {(int)ReservationStatus.Expired}
+                             OR (
+                                 currentReservation."Status" = {(int)ReservationStatus.Reserved}
+                                 AND currentReservation."ExpiresAt" <= {now.UtcDateTime.Ticks}
+                             )
+                         )
+                   )
+                """, cancellationToken);
+
+            if (rowsAffected != 1)
+            {
+                throw CinemaApplicationException.Conflict(
+                    $"Seat {seatId} is currently reserved or has already been sold.");
+            }
+
             dbContext.ReservationSeats.Add(new ReservationSeat
             {
                 ReservationId = reservation.Id,
                 ShowtimeId = showtimeId,
-                SeatId = showtimeSeat.SeatId
+                SeatId = seatId
             });
         }
 
@@ -204,7 +258,7 @@ public sealed class CinemaApplicationService(CinemaDbContext dbContext, TimeProv
 
         return new ReservationResponse(
             reservation.Reference,
-            request.SeatIds.Count,
+            requestedSeatIds.Count,
             new MovieSummaryResponse(
                 showtime.Movie.Id,
                 showtime.Movie.Title,
@@ -214,6 +268,52 @@ public sealed class CinemaApplicationService(CinemaDbContext dbContext, TimeProv
             reservation.CreatedAt,
             reservation.ExpiresAt);
     }
+
+    private static IReadOnlyList<int> FindContiguousAvailableSeats(
+        IReadOnlyList<SeatCandidate> seats,
+        IReadOnlyDictionary<int, ShowtimeSeat> assignments,
+        int count,
+        DateTimeOffset now)
+    {
+        var orderedSeats = seats
+            .OrderBy(seat => seat.Row, StringComparer.Ordinal)
+            .ThenBy(seat => seat.Number)
+            .ToArray();
+        var block = new List<SeatCandidate>(count);
+        SeatCandidate? previous = null;
+
+        foreach (var seat in orderedSeats)
+        {
+            var isAvailable = !assignments.TryGetValue(seat.Id, out var assignment)
+                || assignment.CurrentReservationId is null
+                || assignment.CurrentReservation is { } reservation
+                && (reservation.Status == ReservationStatus.Expired
+                    || reservation.Status == ReservationStatus.Reserved && now >= reservation.ExpiresAt);
+            var followsPrevious = previous is not null
+                && string.Equals(previous.Row, seat.Row, StringComparison.Ordinal)
+                && seat.Number == previous.Number + 1;
+
+            if (!isAvailable || (block.Count > 0 && !followsPrevious))
+            {
+                block.Clear();
+            }
+
+            if (isAvailable)
+            {
+                block.Add(seat);
+                if (block.Count == count)
+                {
+                    return block.Select(item => item.Id).ToArray();
+                }
+            }
+
+            previous = seat;
+        }
+
+        return [];
+    }
+
+    private sealed record SeatCandidate(int Id, string Row, int Number);
 
     public async Task<ReservationConfirmationResponse> ConfirmReservationAsync(
         Guid reference,
@@ -230,8 +330,10 @@ public sealed class CinemaApplicationService(CinemaDbContext dbContext, TimeProv
         var now = timeProvider.GetUtcNow().ToUniversalTime();
 
         var reservation = await dbContext.Reservations
-            .Include(item => item.Seats)
-            .SingleOrDefaultAsync(item => item.Reference == reference, cancellationToken);
+            .AsNoTracking()
+            .Where(item => item.Reference == reference)
+            .Select(item => new { item.Id, item.ShowtimeId, item.Status, item.ExpiresAt })
+            .SingleOrDefaultAsync(cancellationToken);
         if (reservation is null)
         {
             throw CinemaApplicationException.NotFound($"Reservation {reference} was not found.");
@@ -248,24 +350,51 @@ public sealed class CinemaApplicationService(CinemaDbContext dbContext, TimeProv
             throw CinemaApplicationException.Conflict("The reservation has expired.");
         }
 
-        var currentSeats = await dbContext.ShowtimeSeats
-            .Where(item => item.ShowtimeId == reservation.ShowtimeId
-                && item.CurrentReservationId == reservation.Id)
-            .ToListAsync(cancellationToken);
-        var historicalSeatIds = reservation.Seats.Select(item => item.SeatId).ToHashSet();
-        if (currentSeats.Count == 0
-            || currentSeats.Count != historicalSeatIds.Count
-            || currentSeats.Any(item => !historicalSeatIds.Contains(item.SeatId)))
+        var rowsAffected = await dbContext.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE "Reservations"
+            SET "Status" = {(int)ReservationStatus.Confirmed}
+            WHERE "Id" = {reservation.Id}
+              AND "Status" = {(int)ReservationStatus.Reserved}
+              AND "ExpiresAt" > {now.UtcDateTime.Ticks}
+              AND EXISTS (
+                  SELECT 1
+                  FROM "ReservationSeats" AS history
+                  WHERE history."ReservationId" = "Reservations"."Id"
+                    AND history."ShowtimeId" = "Reservations"."ShowtimeId"
+              )
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM "ReservationSeats" AS history
+                  LEFT JOIN "ShowtimeSeats" AS currentSeat
+                    ON currentSeat."ShowtimeId" = history."ShowtimeId"
+                   AND currentSeat."SeatId" = history."SeatId"
+                  WHERE history."ReservationId" = "Reservations"."Id"
+                    AND (
+                        currentSeat."CurrentReservationId" IS NULL
+                        OR currentSeat."CurrentReservationId" <> "Reservations"."Id"
+                    )
+              )
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM "ShowtimeSeats" AS currentSeat
+                  LEFT JOIN "ReservationSeats" AS history
+                    ON history."ShowtimeId" = currentSeat."ShowtimeId"
+                   AND history."SeatId" = currentSeat."SeatId"
+                   AND history."ReservationId" = "Reservations"."Id"
+                  WHERE currentSeat."ShowtimeId" = "Reservations"."ShowtimeId"
+                    AND currentSeat."CurrentReservationId" = "Reservations"."Id"
+                    AND history."ReservationId" IS NULL
+              )
+            """, cancellationToken);
+        if (rowsAffected != 1)
         {
             throw CinemaApplicationException.Conflict(
-                "The reservation does not own all of its recorded seats.");
+                "The reservation expired or no longer owns all of its recorded seats.");
         }
 
-        reservation.Status = ReservationStatus.Confirmed;
-        await dbContext.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
-        return new ReservationConfirmationResponse(reservation.Reference, reservation.Status.ToString());
+        return new ReservationConfirmationResponse(reference, ReservationStatus.Confirmed.ToString());
     }
 
     private static TimeZoneInfo ResolveCinemaTimeZone()

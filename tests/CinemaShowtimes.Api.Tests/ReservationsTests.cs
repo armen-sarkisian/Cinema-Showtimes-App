@@ -6,6 +6,7 @@ using CinemaShowtimes.Application.DTOs;
 using CinemaShowtimes.Domain.Entities;
 using CinemaShowtimes.Domain.Enums;
 using CinemaShowtimes.Infrastructure;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -138,6 +139,30 @@ public sealed class ReservationsTests
     }
 
     [Fact]
+    public async Task MultiSeatReservationRollsBackWhenAnySeatIsUnavailable()
+    {
+        using var factory = new CinemaApiFactory();
+        using var client = factory.CreateClient();
+        var showtimeId = await CreateShowtimeAsync(client);
+        await AddExistingReservationAsync(
+            factory,
+            showtimeId,
+            2,
+            ReservationStatus.Reserved,
+            TimeSpan.FromMinutes(10));
+
+        using var response = await ReserveAsync(client, showtimeId, [1, 2]);
+
+        await AssertProblemAsync(response, HttpStatusCode.Conflict, "conflict");
+        using var scope = factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<CinemaDbContext>();
+        Assert.Equal(1, await dbContext.Reservations.CountAsync());
+        Assert.Equal(1, await dbContext.ReservationSeats.CountAsync());
+        Assert.False(await dbContext.ShowtimeSeats.AnyAsync(
+            item => item.ShowtimeId == showtimeId && item.SeatId == 1));
+    }
+
+    [Fact]
     public async Task AllowsReservationAfterPreviousReservationHasExpiredWithoutChangingItsStatus()
     {
         using var factory = new CinemaApiFactory();
@@ -155,6 +180,9 @@ public sealed class ReservationsTests
         Assert.Equal(ReservationStatus.Reserved, reservations[0].Status);
         Assert.Equal(ReservationStatus.Reserved, reservations[1].Status);
         Assert.Equal(2, await dbContext.ReservationSeats.CountAsync());
+        var assignment = await dbContext.ShowtimeSeats
+            .SingleAsync(item => item.ShowtimeId == showtimeId && item.SeatId == 1);
+        Assert.Equal(reservations[1].Id, assignment.CurrentReservationId);
     }
 
     [Fact]
@@ -171,7 +199,8 @@ public sealed class ReservationsTests
         try
         {
             Assert.Single(responses, response => response.StatusCode == HttpStatusCode.Created);
-            Assert.Single(responses, response => response.StatusCode == HttpStatusCode.Conflict);
+            Assert.Single(responses, response =>
+                response.StatusCode is HttpStatusCode.Conflict or HttpStatusCode.ServiceUnavailable);
         }
         finally
         {
@@ -180,6 +209,26 @@ public sealed class ReservationsTests
                 response.Dispose();
             }
         }
+    }
+
+    [Fact]
+    public async Task ReturnsRetryableProblemWhenSqliteWriteLockIsHeld()
+    {
+        using var factory = new CinemaApiFactory();
+        using var client = factory.CreateClient();
+        var showtimeId = await CreateShowtimeAsync(client);
+        using var scope = factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<CinemaDbContext>();
+        var connection = (SqliteConnection)dbContext.Database.GetDbConnection();
+        await connection.OpenAsync();
+        await using var transaction = connection.BeginTransaction(deferred: false);
+
+        using var response = await ReserveAsync(client, showtimeId, [1]);
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        Assert.Equal(TimeSpan.FromSeconds(1), response.Headers.RetryAfter?.Delta);
+        using var problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.Equal("database_busy", problem.RootElement.GetProperty("code").GetString());
     }
 
     private static async Task<int> CreateShowtimeAsync(HttpClient client)

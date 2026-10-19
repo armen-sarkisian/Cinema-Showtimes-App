@@ -134,7 +134,8 @@ public sealed class ReservationConfirmationTests
         try
         {
             Assert.Single(responses, response => response.StatusCode == HttpStatusCode.OK);
-            Assert.Single(responses, response => response.StatusCode == HttpStatusCode.Conflict);
+            Assert.Single(responses, response =>
+                response.StatusCode is HttpStatusCode.Conflict or HttpStatusCode.ServiceUnavailable);
         }
         finally
         {

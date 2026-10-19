@@ -22,6 +22,23 @@ public sealed class ReservationsController(CinemaApplicationService cinema) : Co
         return StatusCode(StatusCodes.Status201Created, reservation);
     }
 
+    [HttpPost("contiguous")]
+    [ProducesResponseType<ReservationResponse>(StatusCodes.Status201Created)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<ReservationResponse>> CreateContiguous(
+        int showtimeId,
+        CreateContiguousReservationRequest request,
+        CancellationToken cancellationToken)
+    {
+        var reservation = await cinema.CreateContiguousReservationAsync(
+            showtimeId,
+            request.Count,
+            cancellationToken);
+        return StatusCode(StatusCodes.Status201Created, reservation);
+    }
+
     [HttpPost("~/api/reservations/{reference:guid}/confirm")]
     [ProducesResponseType<ReservationConfirmationResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]

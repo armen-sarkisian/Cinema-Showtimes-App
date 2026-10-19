@@ -10,17 +10,26 @@ namespace CinemaShowtimes.Api.Tests;
 
 public sealed class CinemaApiFactory : WebApplicationFactory<Program>
 {
-    private readonly string _databaseName = $"cinema-showtimes-tests-{Guid.NewGuid():N}";
-    private readonly SqliteConnection _keepAliveConnection;
+    private readonly string _connectionString;
+    private readonly SqliteConnection? _keepAliveConnection;
 
     public FixedTimeProvider Clock { get; } = new(
         new DateTimeOffset(2026, 10, 19, 12, 0, 0, TimeSpan.Zero));
 
-    public CinemaApiFactory()
+    public CinemaApiFactory(string? connectionString = null)
     {
-        _keepAliveConnection = new SqliteConnection(
-            $"Data Source={_databaseName};Mode=Memory;Cache=Shared");
-        _keepAliveConnection.Open();
+        if (connectionString is null)
+        {
+            var databaseName = $"cinema-showtimes-tests-{Guid.NewGuid():N}";
+            _connectionString = $"Data Source={databaseName};Mode=Memory;Cache=Shared;Default Timeout=1";
+            _keepAliveConnection = new SqliteConnection(
+                $"Data Source={databaseName};Mode=Memory;Cache=Shared");
+            _keepAliveConnection.Open();
+        }
+        else
+        {
+            _connectionString = connectionString;
+        }
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -30,7 +39,7 @@ public sealed class CinemaApiFactory : WebApplicationFactory<Program>
         {
             configuration.AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["ConnectionStrings:Cinema"] = $"Data Source={_databaseName};Mode=Memory;Cache=Shared"
+                ["ConnectionStrings:Cinema"] = _connectionString
             });
         });
         builder.ConfigureTestServices(services =>
@@ -45,7 +54,7 @@ public sealed class CinemaApiFactory : WebApplicationFactory<Program>
         base.Dispose(disposing);
         if (disposing)
         {
-            _keepAliveConnection.Dispose();
+            _keepAliveConnection?.Dispose();
         }
     }
 

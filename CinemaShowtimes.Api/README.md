@@ -1,18 +1,238 @@
 # Cinema Showtimes API
 
+A small REST API for creating movies and showtimes, temporarily reserving seats, and confirming reservations. The API uses separate request and response DTOs; EF Core entities are not returned to clients.
+
+## Technology stack
+
+- .NET 9 / ASP.NET Core Web API
+- Entity Framework Core 9
+- SQLite
+- Swagger UI
+- xUnit integration tests using SQLite
+
+The API is a modular monolith in one application project, organized into `API`, `Application`, `Domain`, and `Infrastructure` folders. Automated tests are in a separate project.
+
+## Requirements
+
+- .NET 9 SDK
+- Windows, Linux, or macOS
+
+The project was built with .NET SDK `9.0.203`. No database server or credentials are required.
+
 ## Run locally
 
+From the repository root:
+
 ```powershell
-dotnet run --project .\CinemaShowtimes.Api
+dotnet run --project .\CinemaShowtimes.Api\CinemaShowtimes.Api.csproj
 ```
 
-In the Development environment, EF Core creates the SQLite schema on startup with
-`EnsureCreated`. The relative connection string in `appsettings.json` creates
-`cinema-showtimes-app.db` in the process working directory. Initial movies, the main
-auditorium, and its 50 seats are seeded by the EF Core model.
+The HTTP launch profile listens on `http://localhost:5206`; Swagger UI is at `http://localhost:5206/swagger`.
+The launch profile sets the `Development` environment. In that environment, startup calls EF Core `EnsureCreated` and seeds three movies, one auditorium, and 50 seats (rows A-E, seats 1-10).
 
-Swagger UI is available at `/swagger` while the application is running.
+## SQLite configuration and persistence
 
-This starter uses `EnsureCreated` and does not contain migrations. When schema evolution
-is needed, add EF Core migrations and apply them with `dotnet ef database update`; do not
-use `EnsureCreated` with a database managed by migrations.
+The default connection string is in `CinemaShowtimes.Api/appsettings.json`:
+
+```json
+{
+  "ConnectionStrings": {
+    "Cinema": "Data Source=cinema-showtimes-app.db"
+  }
+}
+```
+
+The relative database filename is resolved from the application's working directory. With the run command above, the database is created as `CinemaShowtimes.Api/cinema-showtimes-app.db`. The file is ignored by Git and retains movies, showtimes, reservations, and seat assignments after the application restarts.
+
+Override the connection string without changing source code by setting the standard ASP.NET Core environment variable before running the app:
+
+```powershell
+$env:ConnectionStrings__Cinema = "Data Source=$PWD\cinema-showtimes-app.db"
+dotnet run --project .\CinemaShowtimes.Api\CinemaShowtimes.Api.csproj
+```
+
+The schema is automatically created only in the `Development` environment. This starter has no EF Core migrations. `EnsureCreated` does not update an existing schema. In other environments the schema must be provisioned separately before startup; this repository does not currently include a migration or a runnable database-update command.
+
+## API endpoints
+
+All request and response bodies use JSON. Showtimes are submitted as local Kyiv wall-clock time without a UTC offset. Invalid or ambiguous daylight-saving transition times are rejected. Stored timestamps and reservation timestamps use UTC.
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/api/movies` | Create a movie |
+| `POST` | `/api/showtimes` | Create a showtime |
+| `POST` | `/api/showtimes/{showtimeId}/reservations` | Reserve explicit seat IDs |
+| `POST` | `/api/showtimes/{showtimeId}/reservations/contiguous` | Reserve the first available contiguous block |
+| `POST` | `/api/reservations/{reference}/confirm` | Confirm a reservation |
+
+Successful movie, showtime, and reservation creation returns `201 Created`; confirmation returns `200 OK`. Errors use the `application/problem+json` format with `code` and `traceId` extensions.
+
+### Create a movie
+
+```http
+POST /api/movies
+Content-Type: application/json
+
+{
+  "title": "Example Film",
+  "category": "Drama",
+  "year": 2025
+}
+```
+
+```http
+HTTP/1.1 201 Created
+Content-Type: application/json
+
+{
+  "id": 4,
+  "title": "Example Film",
+  "category": "Drama",
+  "year": 2025
+}
+```
+
+Title and category are required (maximum lengths 200 and 100 characters). The year must be between 1930 and the current year.
+
+### Create a showtime
+
+```http
+POST /api/showtimes
+Content-Type: application/json
+
+{
+  "movieId": 1,
+  "auditoriumId": 1,
+  "startTime": "2026-11-02T19:30:00"
+}
+```
+
+```http
+HTTP/1.1 201 Created
+Content-Type: application/json
+
+{
+  "id": 1,
+  "movieId": 1,
+  "auditoriumId": 1,
+  "startTime": "2026-11-02T19:30:00"
+}
+```
+
+The movie and auditorium must exist, and the showtime must be in the future.
+
+### Reserve explicit seats
+
+```http
+POST /api/showtimes/1/reservations
+Content-Type: application/json
+
+{
+  "seatIds": [1, 2]
+}
+```
+
+```http
+HTTP/1.1 201 Created
+Content-Type: application/json
+
+{
+  "reference": "8c77169e-ae11-4e92-b812-9a1d95a78001",
+  "seatCount": 2,
+  "movie": {
+    "id": 1,
+    "title": "The Grand Adventure",
+    "category": "Adventure",
+    "year": 2024
+  },
+  "auditorium": {
+    "id": 1,
+    "name": "Main Hall"
+  },
+  "createdAt": "2026-10-19T12:00:00+00:00",
+  "expiresAt": "2026-10-19T12:10:00+00:00"
+}
+```
+
+Seat IDs must be distinct, exist, and belong to the auditorium used by the showtime.
+
+### Reserve contiguous seats
+
+```http
+POST /api/showtimes/1/reservations/contiguous
+Content-Type: application/json
+
+{
+  "count": 2
+}
+```
+
+The response has the same shape as an explicit seat reservation. The API chooses the first available consecutive seats in row/seat order; it returns `409 Conflict` if no block fits.
+
+### Confirm a reservation
+
+```http
+POST /api/reservations/8c77169e-ae11-4e92-b812-9a1d95a78001/confirm
+```
+
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "reference": "8c77169e-ae11-4e92-b812-9a1d95a78001",
+  "status": "Confirmed"
+}
+```
+
+No payment is performed. Unknown references return `404`; expired, already confirmed, or otherwise ineligible reservations return `409`.
+
+An error response has a consistent Problem Details shape:
+
+```json
+{
+  "type": "https://httpstatuses.com/409",
+  "title": "Reservation conflict",
+  "status": 409,
+  "detail": "Seat 1 is currently reserved or has already been sold.",
+  "instance": "/api/showtimes/1/reservations",
+  "code": "conflict",
+  "traceId": "0H..."
+}
+```
+
+## Reservation lifecycle
+
+1. A reservation is created with status `Reserved`, a public `Guid` reference, and an expiry exactly 10 minutes after its creation time.
+2. It is active only while its status is `Reserved` and `now < ExpiresAt`. At `now == ExpiresAt`, it is expired for booking and confirmation purposes even if the stored status remains `Reserved`.
+3. Confirmation is accepted only before expiry. A successful confirmation changes the reservation status to `Confirmed`; every current seat assignment points to that reservation, so the assigned seats are treated as sold.
+4. A later reservation can atomically replace a seat assignment belonging to an expired reservation. The old reservation and its `ReservationSeat` history remain in the database. No background cleanup service is used.
+
+## Duplicate-booking protection
+
+`ShowtimeSeat` is the current-assignment table and has a database primary key on `(ShowtimeId, SeatId)`. `ReservationSeat` records the historical seats associated with each reservation. Both normal and contiguous reservations use the same SQLite transaction and conditional upsert.
+
+Reservation creation and confirmation start a SQLite `IMMEDIATE` transaction before reading availability or reservation state. SQLite serializes writers; the conditional upsert can claim a seat only when it has no current owner or its previous `Reserved` owner has expired. All requested assignments and history rows are committed together; a failed seat claim rolls back the whole multi-seat reservation. Confirmation uses a conditional database update requiring the reservation to remain `Reserved`, unexpired, and to own all recorded assignments.
+
+SQLite allows only one writer at a time. A busy/locked database is returned as `503 Service Unavailable` with `Retry-After: 1`; the application does not automatically retry that request. The unique key prevents duplicate current-assignment rows, while the transaction and conditional updates enforce the booking rules for API operations.
+
+## Build and tests
+
+Run from the repository root:
+
+```powershell
+dotnet build .\cinema-showtimes-app.sln
+dotnet test .\cinema-showtimes-app.sln
+```
+
+The integration tests use SQLite, including two independent `DbContext` instances for concurrent reservation and confirmation cases. They also cover validation, expiration boundaries, unavailable seats, contiguous blocks, and database lock responses.
+
+## Limitations and trade-offs
+
+- The schema is created automatically only in `Development`; migrations are not included. `EnsureCreated` is suitable for this local starter, not incremental schema upgrades.
+- The seeded auditorium is fixed; there is no endpoint for managing halls or their seats.
+- The API validates that a reserved seat belongs to the showtime's auditorium. The relational schema has separate foreign keys to showtime and seat, and does not itself enforce that cross-entity auditorium match for data written outside the API.
+- The contiguous algorithm returns the first fitting block and does not optimize seat allocation.
+- SQLite serializes all database writes, which is appropriate for this small assessment but limits write throughput.
+- The code handles expected SQLite busy/constraint errors but does not automatically retry failed requests.
+- No list/read APIs, authentication, payment integration, or reservation-expiration background worker are included.
