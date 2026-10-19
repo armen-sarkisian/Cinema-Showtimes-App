@@ -15,4 +15,7 @@ public sealed class CinemaApplicationException(
 
     public static CinemaApplicationException NotFound(string message) =>
         new(StatusCodes.Status404NotFound, "not_found", "Resource not found", message);
+
+    public static CinemaApplicationException Conflict(string message) =>
+        new(StatusCodes.Status409Conflict, "conflict", "Reservation conflict", message);
 }
