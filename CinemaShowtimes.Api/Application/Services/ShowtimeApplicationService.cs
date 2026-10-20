@@ -1,10 +1,11 @@
+using CinemaShowtimes.Application;
 using CinemaShowtimes.Application.DTOs;
 using CinemaShowtimes.Application.Errors;
 using CinemaShowtimes.Domain.Entities;
 using CinemaShowtimes.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 
-namespace CinemaShowtimes.Application;
+namespace CinemaShowtimes.Api.Application.Services;
 
 public sealed class ShowtimeApplicationService(CinemaDbContext dbContext, TimeProvider timeProvider)
 {

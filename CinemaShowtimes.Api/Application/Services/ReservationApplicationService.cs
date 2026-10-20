@@ -6,7 +6,7 @@ using CinemaShowtimes.Infrastructure;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
-namespace CinemaShowtimes.Application;
+namespace CinemaShowtimes.Api.Application.Services;
 
 public sealed class ReservationApplicationService(CinemaDbContext dbContext, TimeProvider timeProvider)
 {

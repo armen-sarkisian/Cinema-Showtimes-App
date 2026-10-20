@@ -3,7 +3,7 @@ using CinemaShowtimes.Application.Errors;
 using CinemaShowtimes.Domain.Entities;
 using CinemaShowtimes.Infrastructure;
 
-namespace CinemaShowtimes.Application;
+namespace CinemaShowtimes.Api.Application.Services;
 
 public sealed class MovieApplicationService(CinemaDbContext dbContext, TimeProvider timeProvider)
 {

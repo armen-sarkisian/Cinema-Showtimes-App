@@ -1,6 +1,6 @@
 using CinemaShowtimes.Api;
 using CinemaShowtimes.Api.Errors;
-using CinemaShowtimes.Application;
+using CinemaShowtimes.Api.Application.Services;
 using CinemaShowtimes.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Mvc;

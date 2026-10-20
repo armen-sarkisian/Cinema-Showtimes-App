@@ -1,4 +1,4 @@
-namespace CinemaShowtimes.Application;
+namespace CinemaShowtimes.Api.Application;
 
 internal static class CinemaTimeZone
 {
