@@ -16,18 +16,8 @@ public sealed class SqliteReservationOperations(
         TimeSpan reservationLifetime,
         CancellationToken cancellationToken)
     {
-        try
-        {
-            return await CreateCoreAsync(
-                showtimeId,
-                selection,
-                reservationLifetime,
-                cancellationToken);
-        }
-        catch (Exception exception) when (SqliteExceptionTranslator.IsExpected(exception))
-        {
-            throw SqliteExceptionTranslator.Translate(exception);
-        }
+        return await ExecuteWithSqliteErrorTranslationAsync(
+            () => CreateCoreAsync(showtimeId, selection, reservationLifetime, cancellationToken));
     }
 
     private async Task<ReservationCreationResult> CreateCoreAsync(
@@ -36,18 +26,6 @@ public sealed class SqliteReservationOperations(
         TimeSpan reservationLifetime,
         CancellationToken cancellationToken)
     {
-        var requestedSeatIds = selection switch
-        {
-            ReservationSeatSelection.Explicit explicitSeats => explicitSeats.SeatIds,
-            ReservationSeatSelection.Contiguous => null,
-            _ => throw new ArgumentOutOfRangeException(nameof(selection))
-        };
-        if (requestedSeatIds?.Any(seatId => seatId <= 0) == true
-            || requestedSeatIds?.Distinct().Count() != requestedSeatIds?.Count)
-        {
-            return new ReservationCreationResult(ReservationCreationStatus.InvalidSeats);
-        }
-
         var connection = dbContext.Database.GetDbConnection() as SqliteConnection
             ?? throw new InvalidOperationException("Reservation operations require SQLite.");
         await connection.OpenAsync(cancellationToken);
@@ -68,46 +46,28 @@ public sealed class SqliteReservationOperations(
             return new ReservationCreationResult(ReservationCreationStatus.ShowtimeNotFound);
         }
 
-        if (selection is ReservationSeatSelection.Contiguous contiguous)
+        var requestedSeatIds = await ResolveSeatIdsAsync(
+            showtime,
+            selection,
+            now,
+            cancellationToken);
+        if (requestedSeatIds.Status != SeatSelectionStatus.Selected)
         {
-            if (contiguous.Count <= 0)
+            return new ReservationCreationResult(requestedSeatIds.Status switch
             {
-                return new ReservationCreationResult(ReservationCreationStatus.NoContiguousSeats);
-            }
-
-            var auditoriumSeats = await dbContext.Seats
-                .AsNoTracking()
-                .Where(seat => seat.AuditoriumId == showtime.AuditoriumId)
-                .OrderBy(seat => seat.Row)
-                .ThenBy(seat => seat.Number)
-                .Select(seat => new SeatCandidate(seat.Id, seat.Row, seat.Number))
-                .ToListAsync(cancellationToken);
-            if (contiguous.Count > auditoriumSeats.Count)
-            {
-                return new ReservationCreationResult(ReservationCreationStatus.NoContiguousSeats);
-            }
-
-            var currentAssignments = await dbContext.ShowtimeSeats
-                .AsNoTracking()
-                .Include(seat => seat.CurrentReservation)
-                .Where(seat => seat.ShowtimeId == showtimeId)
-                .ToDictionaryAsync(seat => seat.SeatId, cancellationToken);
-            requestedSeatIds = FindContiguousAvailableSeats(
-                auditoriumSeats,
-                currentAssignments,
-                contiguous.Count,
-                now);
-            if (requestedSeatIds.Count != contiguous.Count)
-            {
-                return new ReservationCreationResult(ReservationCreationStatus.NoContiguousSeats);
-            }
+                SeatSelectionStatus.NoContiguousBlock => ReservationCreationStatus.NoContiguousSeats,
+                _ => throw new InvalidOperationException(
+                    $"Unexpected seat selection status: {requestedSeatIds.Status}.")
+            });
         }
 
-        var requestedSeats = await dbContext.Seats
-            .Where(seat => requestedSeatIds!.Contains(seat.Id)
+        var seatIds = requestedSeatIds.SeatIds
+            ?? throw new InvalidOperationException("The seat selection returned no selected IDs.");
+        var requestedSeatCount = await dbContext.Seats
+            .Where(seat => seatIds.Contains(seat.Id)
                 && seat.AuditoriumId == showtime.AuditoriumId)
-            .ToListAsync(cancellationToken);
-        if (requestedSeats.Count != requestedSeatIds!.Count)
+            .CountAsync(cancellationToken);
+        if (requestedSeatCount != seatIds.Count)
         {
             return new ReservationCreationResult(ReservationCreationStatus.InvalidSeats);
         }
@@ -123,11 +83,85 @@ public sealed class SqliteReservationOperations(
         dbContext.Reservations.Add(reservation);
         await dbContext.SaveChangesAsync(cancellationToken);
 
-        foreach (var seatId in requestedSeatIds)
+        var conflictingSeatId = await AssignSeatsAsync(
+            showtimeId,
+            seatIds,
+            reservation.Id,
+            now,
+            cancellationToken);
+        if (conflictingSeatId is not null)
+        {
+            return new ReservationCreationResult(
+                ReservationCreationStatus.SeatUnavailable,
+                ConflictingSeatId: conflictingSeatId);
+        }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        return new ReservationCreationResult(
+            ReservationCreationStatus.Created,
+            reservation,
+            showtime.Movie,
+            showtime.Auditorium,
+            seatIds.Count);
+    }
+
+    private async Task<SeatSelectionResult> ResolveSeatIdsAsync(
+        Showtime showtime,
+        ReservationSeatSelection selection,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        if (selection is ReservationSeatSelection.Explicit explicitSeats)
+        {
+            return new SeatSelectionResult(SeatSelectionStatus.Selected, explicitSeats.SeatIds);
+        }
+
+        if (selection is not ReservationSeatSelection.Contiguous contiguous)
+        {
+            throw new ArgumentOutOfRangeException(nameof(selection));
+        }
+
+        var auditoriumSeats = await dbContext.Seats
+            .AsNoTracking()
+            .Where(seat => seat.AuditoriumId == showtime.AuditoriumId)
+            .OrderBy(seat => seat.Row)
+            .ThenBy(seat => seat.Number)
+            .Select(seat => new SeatCandidate(seat.Id, seat.Row, seat.Number))
+            .ToListAsync(cancellationToken);
+        if (contiguous.Count > auditoriumSeats.Count)
+        {
+            return new SeatSelectionResult(SeatSelectionStatus.NoContiguousBlock);
+        }
+
+        var currentAssignments = await dbContext.ShowtimeSeats
+            .AsNoTracking()
+            .Include(seat => seat.CurrentReservation)
+            .Where(seat => seat.ShowtimeId == showtime.Id)
+            .ToDictionaryAsync(seat => seat.SeatId, cancellationToken);
+        var selectedSeatIds = FindContiguousAvailableSeats(
+            auditoriumSeats,
+            currentAssignments,
+            contiguous.Count,
+            now);
+        return selectedSeatIds.Count == contiguous.Count
+            ? new SeatSelectionResult(SeatSelectionStatus.Selected, selectedSeatIds)
+            : new SeatSelectionResult(SeatSelectionStatus.NoContiguousBlock);
+    }
+
+    private async Task<int?> AssignSeatsAsync(
+        int showtimeId,
+        IReadOnlyList<int> seatIds,
+        int reservationId,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        foreach (var seatId in seatIds)
         {
             var rowsAffected = await dbContext.Database.ExecuteSqlInterpolatedAsync($"""
                 INSERT INTO "ShowtimeSeats" ("ShowtimeId", "SeatId", "CurrentReservationId")
-                VALUES ({showtimeId}, {seatId}, {reservation.Id})
+                VALUES ({showtimeId}, {seatId}, {reservationId})
                 ON CONFLICT ("ShowtimeId", "SeatId") DO UPDATE
                 SET "CurrentReservationId" = excluded."CurrentReservationId"
                 WHERE "ShowtimeSeats"."CurrentReservationId" IS NULL
@@ -148,28 +182,18 @@ public sealed class SqliteReservationOperations(
 
             if (rowsAffected != 1)
             {
-                return new ReservationCreationResult(
-                    ReservationCreationStatus.SeatUnavailable,
-                    ConflictingSeatId: seatId);
+                return seatId;
             }
 
             dbContext.ReservationSeats.Add(new ReservationSeat
             {
-                ReservationId = reservation.Id,
+                ReservationId = reservationId,
                 ShowtimeId = showtimeId,
                 SeatId = seatId
             });
         }
 
-        await dbContext.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
-
-        return new ReservationCreationResult(
-            ReservationCreationStatus.Created,
-            reservation,
-            showtime.Movie,
-            showtime.Auditorium,
-            requestedSeatIds.Count);
+        return null;
     }
 
     private static IReadOnlyList<int> FindContiguousAvailableSeats(
@@ -218,18 +242,22 @@ public sealed class SqliteReservationOperations(
 
     private sealed record SeatCandidate(int Id, string Row, int Number);
 
+    private enum SeatSelectionStatus
+    {
+        Selected,
+        NoContiguousBlock
+    }
+
+    private sealed record SeatSelectionResult(
+        SeatSelectionStatus Status,
+        IReadOnlyList<int>? SeatIds = null);
+
     public async Task<ReservationConfirmationStatus> ConfirmAsync(
         Guid reference,
         CancellationToken cancellationToken)
     {
-        try
-        {
-            return await ConfirmCoreAsync(reference, cancellationToken);
-        }
-        catch (Exception exception) when (SqliteExceptionTranslator.IsExpected(exception))
-        {
-            throw SqliteExceptionTranslator.Translate(exception);
-        }
+        return await ExecuteWithSqliteErrorTranslationAsync(
+            () => ConfirmCoreAsync(reference, cancellationToken));
     }
 
     private async Task<ReservationConfirmationStatus> ConfirmCoreAsync(
@@ -309,5 +337,17 @@ public sealed class SqliteReservationOperations(
 
         await transaction.CommitAsync(cancellationToken);
         return ReservationConfirmationStatus.Confirmed;
+    }
+
+    private static async Task<T> ExecuteWithSqliteErrorTranslationAsync<T>(Func<Task<T>> operation)
+    {
+        try
+        {
+            return await operation();
+        }
+        catch (Exception exception) when (SqliteExceptionTranslator.IsExpected(exception))
+        {
+            throw SqliteExceptionTranslator.Translate(exception);
+        }
     }
 }

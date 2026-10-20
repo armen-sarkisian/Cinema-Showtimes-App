@@ -42,19 +42,18 @@ public sealed class ShowtimeApplicationService(
         };
 
         var result = await showtimes.CreateAsync(showtime, cancellationToken);
-        if (result.Status == ShowtimeCreationStatus.MovieNotFound)
+        showtime = result.Status switch
         {
-            throw CinemaApplicationException.NotFound($"Movie with ID {request.MovieId} was not found.");
-        }
-
-        if (result.Status == ShowtimeCreationStatus.AuditoriumNotFound)
-        {
-            throw CinemaApplicationException.NotFound(
-                $"Auditorium with ID {request.AuditoriumId} was not found.");
-        }
-
-        showtime = result.Showtime
-            ?? throw new InvalidOperationException("The showtime store returned no created showtime.");
+            ShowtimeCreationStatus.Created => result.Showtime
+                ?? throw new InvalidOperationException("The showtime store returned no created showtime."),
+            ShowtimeCreationStatus.MovieNotFound =>
+                throw CinemaApplicationException.NotFound($"Movie with ID {request.MovieId} was not found."),
+            ShowtimeCreationStatus.AuditoriumNotFound =>
+                throw CinemaApplicationException.NotFound(
+                    $"Auditorium with ID {request.AuditoriumId} was not found."),
+            _ => throw new InvalidOperationException(
+                $"Unexpected showtime creation status: {result.Status}.")
+        };
 
         return new ShowtimeResponse(
             showtime.Id,
