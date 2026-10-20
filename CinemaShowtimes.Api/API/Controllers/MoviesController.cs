@@ -6,7 +6,7 @@ namespace CinemaShowtimes.Api.Controllers;
 
 [ApiController]
 [Route("api/movies")]
-public sealed class MoviesController(CinemaApplicationService cinema) : ControllerBase
+public sealed class MoviesController(MovieApplicationService movies) : ControllerBase
 {
     [HttpPost]
     [ProducesResponseType<MovieResponse>(StatusCodes.Status201Created)]
@@ -15,7 +15,7 @@ public sealed class MoviesController(CinemaApplicationService cinema) : Controll
         CreateMovieRequest request,
         CancellationToken cancellationToken)
     {
-        var movie = await cinema.CreateMovieAsync(request, cancellationToken);
+        var movie = await movies.CreateMovieAsync(request, cancellationToken);
         return StatusCode(StatusCodes.Status201Created, movie);
     }
 }
