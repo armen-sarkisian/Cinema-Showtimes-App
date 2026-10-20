@@ -22,11 +22,11 @@ public sealed class ConcurrentDatabaseOperationsTests
         var firstDbContext = firstScope.ServiceProvider.GetRequiredService<CinemaDbContext>();
         var secondDbContext = secondScope.ServiceProvider.GetRequiredService<CinemaDbContext>();
         Assert.NotSame(firstDbContext, secondDbContext);
-        var firstService = firstScope.ServiceProvider.GetRequiredService<CinemaApplicationService>();
-        var secondService = secondScope.ServiceProvider.GetRequiredService<CinemaApplicationService>();
+        var firstService = firstScope.ServiceProvider.GetRequiredService<ReservationApplicationService>();
+        var secondService = secondScope.ServiceProvider.GetRequiredService<ReservationApplicationService>();
         var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        async Task<OperationResult> ReserveAsync(CinemaApplicationService service)
+        async Task<OperationResult> ReserveAsync(ReservationApplicationService service)
         {
             await start.Task;
             try
@@ -87,11 +87,11 @@ public sealed class ConcurrentDatabaseOperationsTests
         var firstDbContext = firstScope.ServiceProvider.GetRequiredService<CinemaDbContext>();
         var secondDbContext = secondScope.ServiceProvider.GetRequiredService<CinemaDbContext>();
         Assert.NotSame(firstDbContext, secondDbContext);
-        var firstService = firstScope.ServiceProvider.GetRequiredService<CinemaApplicationService>();
-        var secondService = secondScope.ServiceProvider.GetRequiredService<CinemaApplicationService>();
+        var firstService = firstScope.ServiceProvider.GetRequiredService<ReservationApplicationService>();
+        var secondService = secondScope.ServiceProvider.GetRequiredService<ReservationApplicationService>();
         var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        async Task<OperationResult> ConfirmAsync(CinemaApplicationService service)
+        async Task<OperationResult> ConfirmAsync(ReservationApplicationService service)
         {
             await start.Task;
             try
@@ -141,11 +141,11 @@ public sealed class ConcurrentDatabaseOperationsTests
         var firstDbContext = firstScope.ServiceProvider.GetRequiredService<CinemaDbContext>();
         var secondDbContext = secondScope.ServiceProvider.GetRequiredService<CinemaDbContext>();
         Assert.NotSame(firstDbContext, secondDbContext);
-        var firstService = firstScope.ServiceProvider.GetRequiredService<CinemaApplicationService>();
-        var secondService = secondScope.ServiceProvider.GetRequiredService<CinemaApplicationService>();
+        var firstService = firstScope.ServiceProvider.GetRequiredService<ReservationApplicationService>();
+        var secondService = secondScope.ServiceProvider.GetRequiredService<ReservationApplicationService>();
         var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        async Task<OperationResult> ReserveBlockAsync(CinemaApplicationService service)
+        async Task<OperationResult> ReserveBlockAsync(ReservationApplicationService service)
         {
             await start.Task;
             try
@@ -212,7 +212,7 @@ public sealed class ConcurrentDatabaseOperationsTests
         List<int> seatIds)
     {
         using var scope = factory.Services.CreateScope();
-        var service = scope.ServiceProvider.GetRequiredService<CinemaApplicationService>();
+        var service = scope.ServiceProvider.GetRequiredService<ReservationApplicationService>();
         return await service.CreateReservationAsync(
             showtimeId,
             new CreateReservationRequest { SeatIds = seatIds },

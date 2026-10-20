@@ -10,7 +10,7 @@ A small REST API for creating movies and showtimes, temporarily reserving seats,
 - Swagger UI
 - xUnit integration tests using SQLite
 
-The API is a modular monolith in one application project, organized into `API`, `Application`, `Domain`, and `Infrastructure` folders. Automated tests are in a separate project.
+The API is a modular monolith in one application project, organized into `API`, `Application`, `Domain`, and `Infrastructure` folders. The application layer has dedicated movie, showtime, and reservation services; ordinary and contiguous reservations share the same booking flow. Automated tests are in a separate project.
 
 ## Requirements
 

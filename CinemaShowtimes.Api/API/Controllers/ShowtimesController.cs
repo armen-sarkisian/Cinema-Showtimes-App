@@ -6,7 +6,7 @@ namespace CinemaShowtimes.Api.Controllers;
 
 [ApiController]
 [Route("api/showtimes")]
-public sealed class ShowtimesController(CinemaApplicationService cinema) : ControllerBase
+public sealed class ShowtimesController(ShowtimeApplicationService showtimes) : ControllerBase
 {
     [HttpPost]
     [ProducesResponseType<ShowtimeResponse>(StatusCodes.Status201Created)]
@@ -16,7 +16,7 @@ public sealed class ShowtimesController(CinemaApplicationService cinema) : Contr
         CreateShowtimeRequest request,
         CancellationToken cancellationToken)
     {
-        var showtime = await cinema.CreateShowtimeAsync(request, cancellationToken);
+        var showtime = await showtimes.CreateShowtimeAsync(request, cancellationToken);
         return StatusCode(StatusCodes.Status201Created, showtime);
     }
 }

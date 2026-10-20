@@ -29,7 +29,9 @@ builder.Services.AddControllers()
     });
 builder.Services.AddSwaggerDocumentation();
 builder.Services.AddSingleton(TimeProvider.System);
-builder.Services.AddScoped<CinemaApplicationService>();
+builder.Services.AddScoped<MovieApplicationService>();
+builder.Services.AddScoped<ShowtimeApplicationService>();
+builder.Services.AddScoped<ReservationApplicationService>();
 builder.Services.AddDbContext<CinemaDbContext>(options =>
     options.UseSqlite(
         builder.Configuration.GetConnectionString("Cinema")

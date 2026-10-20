@@ -6,7 +6,7 @@ namespace CinemaShowtimes.Api.Controllers;
 
 [ApiController]
 [Route("api/showtimes/{showtimeId:int}/reservations")]
-public sealed class ReservationsController(CinemaApplicationService cinema) : ControllerBase
+public sealed class ReservationsController(ReservationApplicationService reservations) : ControllerBase
 {
     [HttpPost]
     [ProducesResponseType<ReservationResponse>(StatusCodes.Status201Created)]
@@ -18,7 +18,7 @@ public sealed class ReservationsController(CinemaApplicationService cinema) : Co
         CreateReservationRequest request,
         CancellationToken cancellationToken)
     {
-        var reservation = await cinema.CreateReservationAsync(showtimeId, request, cancellationToken);
+        var reservation = await reservations.CreateReservationAsync(showtimeId, request, cancellationToken);
         return StatusCode(StatusCodes.Status201Created, reservation);
     }
 
@@ -32,7 +32,7 @@ public sealed class ReservationsController(CinemaApplicationService cinema) : Co
         CreateContiguousReservationRequest request,
         CancellationToken cancellationToken)
     {
-        var reservation = await cinema.CreateContiguousReservationAsync(
+        var reservation = await reservations.CreateContiguousReservationAsync(
             showtimeId,
             request.Count,
             cancellationToken);
@@ -47,7 +47,7 @@ public sealed class ReservationsController(CinemaApplicationService cinema) : Co
         Guid reference,
         CancellationToken cancellationToken)
     {
-        var confirmation = await cinema.ConfirmReservationAsync(reference, cancellationToken);
+        var confirmation = await reservations.ConfirmReservationAsync(reference, cancellationToken);
         return Ok(confirmation);
     }
 }
