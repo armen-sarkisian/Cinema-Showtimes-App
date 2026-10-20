@@ -1,4 +1,4 @@
-using CinemaShowtimes.Api.Application.Services;
+using CinemaShowtimes.Application.Services;
 using CinemaShowtimes.Application.DTOs;
 using Microsoft.AspNetCore.Mvc;
 

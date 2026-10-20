@@ -1,10 +1,10 @@
-using CinemaShowtimes.Api.Application.Services;
+using CinemaShowtimes.Application.Persistence;
+using CinemaShowtimes.Application.Services;
 using CinemaShowtimes.Application.DTOs;
 using CinemaShowtimes.Application.Errors;
 using CinemaShowtimes.Domain.Entities;
 using CinemaShowtimes.Domain.Enums;
 using CinemaShowtimes.Infrastructure;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -37,13 +37,15 @@ public sealed class ConcurrentDatabaseOperationsTests
                     CancellationToken.None);
                 return OperationResult.Success(reservation.Reference);
             }
-            catch (CinemaApplicationException exception) when (exception.StatusCode == 409)
+            catch (CinemaApplicationException exception)
             {
-                return OperationResult.Failure(exception.StatusCode);
+                return OperationResult.Failure(exception.Kind == CinemaApplicationErrorKind.Conflict ? 409 : 500);
             }
-            catch (SqliteException exception) when (exception.SqliteErrorCode is 5 or 6)
+            catch (PersistenceOperationException exception)
             {
-                return OperationResult.Failure(503);
+                return OperationResult.Failure(exception.Failure == PersistenceFailure.TemporarilyUnavailable
+                    ? 503
+                    : 409);
             }
         }
 
@@ -99,13 +101,15 @@ public sealed class ConcurrentDatabaseOperationsTests
                 await service.ConfirmReservationAsync(reservation.Reference, CancellationToken.None);
                 return OperationResult.Success(reservation.Reference);
             }
-            catch (CinemaApplicationException exception) when (exception.StatusCode == 409)
+            catch (CinemaApplicationException exception)
             {
-                return OperationResult.Failure(exception.StatusCode);
+                return OperationResult.Failure(exception.Kind == CinemaApplicationErrorKind.Conflict ? 409 : 500);
             }
-            catch (SqliteException exception) when (exception.SqliteErrorCode is 5 or 6)
+            catch (PersistenceOperationException exception)
             {
-                return OperationResult.Failure(503);
+                return OperationResult.Failure(exception.Failure == PersistenceFailure.TemporarilyUnavailable
+                    ? 503
+                    : 409);
             }
         }
 
@@ -156,13 +160,15 @@ public sealed class ConcurrentDatabaseOperationsTests
                     CancellationToken.None);
                 return OperationResult.Success(reservation.Reference);
             }
-            catch (CinemaApplicationException exception) when (exception.StatusCode == 409)
+            catch (CinemaApplicationException exception)
             {
-                return OperationResult.Failure(exception.StatusCode);
+                return OperationResult.Failure(exception.Kind == CinemaApplicationErrorKind.Conflict ? 409 : 500);
             }
-            catch (SqliteException exception) when (exception.SqliteErrorCode is 5 or 6)
+            catch (PersistenceOperationException exception)
             {
-                return OperationResult.Failure(503);
+                return OperationResult.Failure(exception.Failure == PersistenceFailure.TemporarilyUnavailable
+                    ? 503
+                    : 409);
             }
         }
 

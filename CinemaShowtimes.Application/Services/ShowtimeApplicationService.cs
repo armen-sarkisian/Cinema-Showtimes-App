@@ -1,13 +1,14 @@
 using CinemaShowtimes.Application;
 using CinemaShowtimes.Application.DTOs;
 using CinemaShowtimes.Application.Errors;
+using CinemaShowtimes.Application.Persistence;
 using CinemaShowtimes.Domain.Entities;
-using CinemaShowtimes.Infrastructure;
-using Microsoft.EntityFrameworkCore;
 
-namespace CinemaShowtimes.Api.Application.Services;
+namespace CinemaShowtimes.Application.Services;
 
-public sealed class ShowtimeApplicationService(CinemaDbContext dbContext, TimeProvider timeProvider)
+public sealed class ShowtimeApplicationService(
+    IShowtimeCreationStore showtimes,
+    TimeProvider timeProvider)
 {
     public async Task<ShowtimeResponse> CreateShowtimeAsync(
         CreateShowtimeRequest request,
@@ -17,19 +18,6 @@ public sealed class ShowtimeApplicationService(CinemaDbContext dbContext, TimePr
         {
             throw CinemaApplicationException.Invalid(
                 "StartTime must be a valid local date and time in the cinema time zone, without a UTC offset.");
-        }
-
-        if (!await dbContext.Movies.AnyAsync(movie => movie.Id == request.MovieId, cancellationToken))
-        {
-            throw CinemaApplicationException.NotFound($"Movie with ID {request.MovieId} was not found.");
-        }
-
-        if (!await dbContext.Auditoriums.AnyAsync(
-                auditorium => auditorium.Id == request.AuditoriumId,
-                cancellationToken))
-        {
-            throw CinemaApplicationException.NotFound(
-                $"Auditorium with ID {request.AuditoriumId} was not found.");
         }
 
         var localStartTime = DateTime.SpecifyKind(request.StartTime, DateTimeKind.Unspecified);
@@ -53,8 +41,20 @@ public sealed class ShowtimeApplicationService(CinemaDbContext dbContext, TimePr
             StartTime = new DateTimeOffset(startTimeUtc, TimeSpan.Zero)
         };
 
-        dbContext.Showtimes.Add(showtime);
-        await dbContext.SaveChangesAsync(cancellationToken);
+        var result = await showtimes.CreateAsync(showtime, cancellationToken);
+        if (result.Status == ShowtimeCreationStatus.MovieNotFound)
+        {
+            throw CinemaApplicationException.NotFound($"Movie with ID {request.MovieId} was not found.");
+        }
+
+        if (result.Status == ShowtimeCreationStatus.AuditoriumNotFound)
+        {
+            throw CinemaApplicationException.NotFound(
+                $"Auditorium with ID {request.AuditoriumId} was not found.");
+        }
+
+        showtime = result.Showtime
+            ?? throw new InvalidOperationException("The showtime store returned no created showtime.");
 
         return new ShowtimeResponse(
             showtime.Id,
