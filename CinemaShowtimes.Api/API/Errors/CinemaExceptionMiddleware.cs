@@ -1,6 +1,5 @@
 using CinemaShowtimes.Application.Errors;
-using Microsoft.Data.Sqlite;
-using Microsoft.EntityFrameworkCore;
+using CinemaShowtimes.Application.Persistence;
 
 namespace CinemaShowtimes.Api.Errors;
 
@@ -19,12 +18,21 @@ public sealed class CinemaExceptionMiddleware(RequestDelegate next, ILogger<Cine
                 throw;
             }
 
-            context.Response.StatusCode = exception.StatusCode;
+            var statusCode = exception.Kind switch
+            {
+                CinemaApplicationErrorKind.InvalidRequest => StatusCodes.Status400BadRequest,
+                CinemaApplicationErrorKind.NotFound => StatusCodes.Status404NotFound,
+                CinemaApplicationErrorKind.Conflict => StatusCodes.Status409Conflict,
+                _ => throw new InvalidOperationException(
+                    $"Unexpected application error kind: {exception.Kind}.")
+            };
+
+            context.Response.StatusCode = statusCode;
             context.Response.ContentType = "application/problem+json";
             await context.Response.WriteAsJsonAsync(
                 ApiProblemFactory.Create(
                     context,
-                    exception.StatusCode,
+                    statusCode,
                     exception.Title,
                     exception.Message,
                     exception.Code),
@@ -32,15 +40,14 @@ public sealed class CinemaExceptionMiddleware(RequestDelegate next, ILogger<Cine
                 contentType: "application/problem+json",
                 cancellationToken: context.RequestAborted);
         }
-        catch (Exception exception) when (GetExpectedSqliteException(exception) is not null)
+        catch (PersistenceOperationException exception)
         {
             if (context.Response.HasStarted)
             {
                 throw;
             }
 
-            var sqliteException = GetExpectedSqliteException(exception)!;
-            var isBusy = sqliteException.SqliteErrorCode is 5 or 6;
+            var isBusy = exception.Failure == PersistenceFailure.TemporarilyUnavailable;
             var statusCode = isBusy
                 ? StatusCodes.Status503ServiceUnavailable
                 : StatusCodes.Status409Conflict;
@@ -52,8 +59,8 @@ public sealed class CinemaExceptionMiddleware(RequestDelegate next, ILogger<Cine
 
             logger.LogWarning(
                 exception,
-                "SQLite operation failed with error code {SqliteErrorCode}.",
-                sqliteException.SqliteErrorCode);
+                "Persistence operation failed with classification {Failure}.",
+                exception.Failure);
             context.Response.StatusCode = statusCode;
             if (isBusy)
             {
@@ -68,12 +75,4 @@ public sealed class CinemaExceptionMiddleware(RequestDelegate next, ILogger<Cine
         }
     }
 
-    private static SqliteException? GetExpectedSqliteException(Exception exception)
-    {
-        var sqliteException = exception as SqliteException
-            ?? (exception as DbUpdateException)?.InnerException as SqliteException;
-        return sqliteException?.SqliteErrorCode is 5 or 6 or 19
-            ? sqliteException
-            : null;
-    }
 }

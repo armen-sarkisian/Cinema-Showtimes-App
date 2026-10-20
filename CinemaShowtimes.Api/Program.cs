@@ -1,6 +1,7 @@
 using CinemaShowtimes.Api;
 using CinemaShowtimes.Api.Errors;
-using CinemaShowtimes.Api.Application.Services;
+using CinemaShowtimes.Application.Persistence;
+using CinemaShowtimes.Application.Services;
 using CinemaShowtimes.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Mvc;
@@ -32,6 +33,9 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<MovieApplicationService>();
 builder.Services.AddScoped<ShowtimeApplicationService>();
 builder.Services.AddScoped<ReservationApplicationService>();
+builder.Services.AddScoped<IMovieCreationStore, EfCoreMovieCreationStore>();
+builder.Services.AddScoped<IShowtimeCreationStore, EfCoreShowtimeCreationStore>();
+builder.Services.AddScoped<IReservationOperations, SqliteReservationOperations>();
 builder.Services.AddDbContext<CinemaDbContext>(options =>
     options.UseSqlite(
         builder.Configuration.GetConnectionString("Cinema")

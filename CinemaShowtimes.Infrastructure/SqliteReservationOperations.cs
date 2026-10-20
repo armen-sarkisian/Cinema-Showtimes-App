@@ -1,65 +1,55 @@
-using CinemaShowtimes.Application.DTOs;
-using CinemaShowtimes.Application.Errors;
+using CinemaShowtimes.Application.Persistence;
 using CinemaShowtimes.Domain.Entities;
 using CinemaShowtimes.Domain.Enums;
-using CinemaShowtimes.Infrastructure;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
-namespace CinemaShowtimes.Api.Application.Services;
+namespace CinemaShowtimes.Infrastructure;
 
-public sealed class ReservationApplicationService(CinemaDbContext dbContext, TimeProvider timeProvider)
+public sealed class SqliteReservationOperations(
+    CinemaDbContext dbContext,
+    TimeProvider timeProvider) : IReservationOperations
 {
-    public Task<ReservationResponse> CreateReservationAsync(
+    public async Task<ReservationCreationResult> CreateAsync(
         int showtimeId,
-        CreateReservationRequest request,
+        ReservationSeatSelection selection,
+        TimeSpan reservationLifetime,
         CancellationToken cancellationToken)
     {
-        if (request.SeatIds is null || request.SeatIds.Count == 0)
+        try
         {
-            throw CinemaApplicationException.Invalid("At least one seat must be selected.");
+            return await CreateCoreAsync(
+                showtimeId,
+                selection,
+                reservationLifetime,
+                cancellationToken);
         }
-
-        return CreateReservationCoreAsync(showtimeId, request.SeatIds, null, cancellationToken);
+        catch (Exception exception) when (SqliteExceptionTranslator.IsExpected(exception))
+        {
+            throw SqliteExceptionTranslator.Translate(exception);
+        }
     }
 
-    public Task<ReservationResponse> CreateContiguousReservationAsync(
+    private async Task<ReservationCreationResult> CreateCoreAsync(
         int showtimeId,
-        int count,
+        ReservationSeatSelection selection,
+        TimeSpan reservationLifetime,
         CancellationToken cancellationToken)
     {
-        if (count <= 0)
+        var requestedSeatIds = selection switch
         {
-            throw CinemaApplicationException.Invalid("Seat count must be greater than zero.");
-        }
-
-        return CreateReservationCoreAsync(showtimeId, null, count, cancellationToken);
-    }
-
-    private async Task<ReservationResponse> CreateReservationCoreAsync(
-        int showtimeId,
-        IReadOnlyList<int>? requestedSeatIds,
-        int? contiguousSeatCount,
-        CancellationToken cancellationToken)
-    {
-        if (requestedSeatIds is not null && requestedSeatIds.Count == 0)
+            ReservationSeatSelection.Explicit explicitSeats => explicitSeats.SeatIds,
+            ReservationSeatSelection.Contiguous => null,
+            _ => throw new ArgumentOutOfRangeException(nameof(selection))
+        };
+        if (requestedSeatIds?.Any(seatId => seatId <= 0) == true
+            || requestedSeatIds?.Distinct().Count() != requestedSeatIds?.Count)
         {
-            throw CinemaApplicationException.Invalid("At least one seat must be selected.");
-        }
-
-        if (requestedSeatIds?.Any(seatId => seatId <= 0) == true)
-        {
-            throw CinemaApplicationException.Invalid("Seat IDs must be positive integers.");
-        }
-
-        if (requestedSeatIds is not null
-            && requestedSeatIds.Distinct().Count() != requestedSeatIds.Count)
-        {
-            throw CinemaApplicationException.Invalid("Seat IDs must not contain duplicates.");
+            return new ReservationCreationResult(ReservationCreationStatus.InvalidSeats);
         }
 
         var connection = dbContext.Database.GetDbConnection() as SqliteConnection
-            ?? throw new InvalidOperationException("Reservations require a SQLite database.");
+            ?? throw new InvalidOperationException("Reservation operations require SQLite.");
         await connection.OpenAsync(cancellationToken);
         await using var sqliteTransaction = connection.BeginTransaction(deferred: false);
         await using var transaction = await dbContext.Database.UseTransactionAsync(
@@ -67,6 +57,7 @@ public sealed class ReservationApplicationService(CinemaDbContext dbContext, Tim
             cancellationToken)
             ?? throw new InvalidOperationException("Could not enlist the SQLite reservation transaction.");
         var now = timeProvider.GetUtcNow().ToUniversalTime();
+        var expiresAt = now.Add(reservationLifetime);
 
         var showtime = await dbContext.Showtimes
             .Include(item => item.Movie)
@@ -74,11 +65,16 @@ public sealed class ReservationApplicationService(CinemaDbContext dbContext, Tim
             .SingleOrDefaultAsync(item => item.Id == showtimeId, cancellationToken);
         if (showtime is null)
         {
-            throw CinemaApplicationException.NotFound($"Showtime with ID {showtimeId} was not found.");
+            return new ReservationCreationResult(ReservationCreationStatus.ShowtimeNotFound);
         }
 
-        if (requestedSeatIds is null)
+        if (selection is ReservationSeatSelection.Contiguous contiguous)
         {
+            if (contiguous.Count <= 0)
+            {
+                return new ReservationCreationResult(ReservationCreationStatus.NoContiguousSeats);
+            }
+
             var auditoriumSeats = await dbContext.Seats
                 .AsNoTracking()
                 .Where(seat => seat.AuditoriumId == showtime.AuditoriumId)
@@ -86,10 +82,9 @@ public sealed class ReservationApplicationService(CinemaDbContext dbContext, Tim
                 .ThenBy(seat => seat.Number)
                 .Select(seat => new SeatCandidate(seat.Id, seat.Row, seat.Number))
                 .ToListAsync(cancellationToken);
-            if (contiguousSeatCount > auditoriumSeats.Count)
+            if (contiguous.Count > auditoriumSeats.Count)
             {
-                throw CinemaApplicationException.Conflict(
-                    $"No contiguous block of {contiguousSeatCount} available seats exists.");
+                return new ReservationCreationResult(ReservationCreationStatus.NoContiguousSeats);
             }
 
             var currentAssignments = await dbContext.ShowtimeSeats
@@ -97,27 +92,24 @@ public sealed class ReservationApplicationService(CinemaDbContext dbContext, Tim
                 .Include(seat => seat.CurrentReservation)
                 .Where(seat => seat.ShowtimeId == showtimeId)
                 .ToDictionaryAsync(seat => seat.SeatId, cancellationToken);
-
             requestedSeatIds = FindContiguousAvailableSeats(
                 auditoriumSeats,
                 currentAssignments,
-                contiguousSeatCount!.Value,
+                contiguous.Count,
                 now);
-            if (requestedSeatIds.Count != contiguousSeatCount)
+            if (requestedSeatIds.Count != contiguous.Count)
             {
-                throw CinemaApplicationException.Conflict(
-                    $"No contiguous block of {contiguousSeatCount} available seats exists.");
+                return new ReservationCreationResult(ReservationCreationStatus.NoContiguousSeats);
             }
         }
 
         var requestedSeats = await dbContext.Seats
-            .Where(seat => requestedSeatIds.Contains(seat.Id)
+            .Where(seat => requestedSeatIds!.Contains(seat.Id)
                 && seat.AuditoriumId == showtime.AuditoriumId)
             .ToListAsync(cancellationToken);
-        if (requestedSeats.Count != requestedSeatIds.Count)
+        if (requestedSeats.Count != requestedSeatIds!.Count)
         {
-            throw CinemaApplicationException.Invalid(
-                "Every seat must exist and belong to the showtime's auditorium.");
+            return new ReservationCreationResult(ReservationCreationStatus.InvalidSeats);
         }
 
         var reservation = new Reservation
@@ -125,7 +117,7 @@ public sealed class ReservationApplicationService(CinemaDbContext dbContext, Tim
             Reference = Guid.NewGuid(),
             ShowtimeId = showtimeId,
             CreatedAt = now,
-            ExpiresAt = now.AddMinutes(10),
+            ExpiresAt = expiresAt,
             Status = ReservationStatus.Reserved
         };
         dbContext.Reservations.Add(reservation);
@@ -156,8 +148,9 @@ public sealed class ReservationApplicationService(CinemaDbContext dbContext, Tim
 
             if (rowsAffected != 1)
             {
-                throw CinemaApplicationException.Conflict(
-                    $"Seat {seatId} is currently reserved or has already been sold.");
+                return new ReservationCreationResult(
+                    ReservationCreationStatus.SeatUnavailable,
+                    ConflictingSeatId: seatId);
             }
 
             dbContext.ReservationSeats.Add(new ReservationSeat
@@ -171,17 +164,12 @@ public sealed class ReservationApplicationService(CinemaDbContext dbContext, Tim
         await dbContext.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
-        return new ReservationResponse(
-            reservation.Reference,
-            requestedSeatIds.Count,
-            new MovieSummaryResponse(
-                showtime.Movie.Id,
-                showtime.Movie.Title,
-                showtime.Movie.Category,
-                showtime.Movie.Year),
-            new AuditoriumSummaryResponse(showtime.Auditorium.Id, showtime.Auditorium.Name),
-            reservation.CreatedAt,
-            reservation.ExpiresAt);
+        return new ReservationCreationResult(
+            ReservationCreationStatus.Created,
+            reservation,
+            showtime.Movie,
+            showtime.Auditorium,
+            requestedSeatIds.Count);
     }
 
     private static IReadOnlyList<int> FindContiguousAvailableSeats(
@@ -230,12 +218,26 @@ public sealed class ReservationApplicationService(CinemaDbContext dbContext, Tim
 
     private sealed record SeatCandidate(int Id, string Row, int Number);
 
-    public async Task<ReservationConfirmationResponse> ConfirmReservationAsync(
+    public async Task<ReservationConfirmationStatus> ConfirmAsync(
+        Guid reference,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await ConfirmCoreAsync(reference, cancellationToken);
+        }
+        catch (Exception exception) when (SqliteExceptionTranslator.IsExpected(exception))
+        {
+            throw SqliteExceptionTranslator.Translate(exception);
+        }
+    }
+
+    private async Task<ReservationConfirmationStatus> ConfirmCoreAsync(
         Guid reference,
         CancellationToken cancellationToken)
     {
         var connection = dbContext.Database.GetDbConnection() as SqliteConnection
-            ?? throw new InvalidOperationException("Reservation confirmation requires a SQLite database.");
+            ?? throw new InvalidOperationException("Reservation confirmation requires SQLite.");
         await connection.OpenAsync(cancellationToken);
         await using var sqliteTransaction = connection.BeginTransaction(deferred: false);
         await using var transaction = await dbContext.Database.UseTransactionAsync(
@@ -251,18 +253,17 @@ public sealed class ReservationApplicationService(CinemaDbContext dbContext, Tim
             .SingleOrDefaultAsync(cancellationToken);
         if (reservation is null)
         {
-            throw CinemaApplicationException.NotFound($"Reservation {reference} was not found.");
+            return ReservationConfirmationStatus.NotFound;
         }
 
         if (reservation.Status != ReservationStatus.Reserved)
         {
-            throw CinemaApplicationException.Conflict(
-                "Only a reservation with Reserved status can be confirmed.");
+            return ReservationConfirmationStatus.NotReserved;
         }
 
         if (now >= reservation.ExpiresAt)
         {
-            throw CinemaApplicationException.Conflict("The reservation has expired.");
+            return ReservationConfirmationStatus.Expired;
         }
 
         var rowsAffected = await dbContext.Database.ExecuteSqlInterpolatedAsync($"""
@@ -303,12 +304,10 @@ public sealed class ReservationApplicationService(CinemaDbContext dbContext, Tim
             """, cancellationToken);
         if (rowsAffected != 1)
         {
-            throw CinemaApplicationException.Conflict(
-                "The reservation expired or no longer owns all of its recorded seats.");
+            return ReservationConfirmationStatus.AssignmentMismatch;
         }
 
         await transaction.CommitAsync(cancellationToken);
-
-        return new ReservationConfirmationResponse(reference, ReservationStatus.Confirmed.ToString());
+        return ReservationConfirmationStatus.Confirmed;
     }
 }

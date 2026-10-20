@@ -1,11 +1,12 @@
 using CinemaShowtimes.Application.DTOs;
 using CinemaShowtimes.Application.Errors;
+using CinemaShowtimes.Application.Persistence;
 using CinemaShowtimes.Domain.Entities;
-using CinemaShowtimes.Infrastructure;
+using CinemaShowtimes.Application;
 
-namespace CinemaShowtimes.Api.Application.Services;
+namespace CinemaShowtimes.Application.Services;
 
-public sealed class MovieApplicationService(CinemaDbContext dbContext, TimeProvider timeProvider)
+public sealed class MovieApplicationService(IMovieCreationStore movies, TimeProvider timeProvider)
 {
     public async Task<MovieResponse> CreateMovieAsync(
         CreateMovieRequest request,
@@ -32,8 +33,7 @@ public sealed class MovieApplicationService(CinemaDbContext dbContext, TimeProvi
             Year = request.Year
         };
 
-        dbContext.Movies.Add(movie);
-        await dbContext.SaveChangesAsync(cancellationToken);
+        movie = await movies.CreateAsync(movie, cancellationToken);
         return new MovieResponse(movie.Id, movie.Title, movie.Category, movie.Year);
     }
 }

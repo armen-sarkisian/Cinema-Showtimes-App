@@ -10,7 +10,17 @@ A small REST API for creating movies and showtimes, temporarily reserving seats,
 - Swagger UI
 - xUnit integration tests using SQLite
 
-The API is a modular monolith in one application project, organized into `API`, `Application`, `Domain`, and `Infrastructure` folders. The application layer has dedicated movie, showtime, and reservation services; ordinary and contiguous reservations share the same booking flow. Automated tests are in a separate project.
+The modular monolith is split into projects with explicit dependency direction:
+
+```text
+CinemaShowtimes.Domain
+        ↑                 ↑
+CinemaShowtimes.Application ← CinemaShowtimes.Infrastructure
+        ↑                          ↑
+        └──── CinemaShowtimes.Api ─┘
+```
+
+`CinemaShowtimes.Application` owns the creation and reservation-operation contracts; `CinemaShowtimes.Infrastructure` implements them using EF Core and SQLite. The reservation contract represents each complete atomic create/confirm operation, so application code cannot separate availability checks from seat assignment. SQLite transactions and SQL are contained in Infrastructure; provider errors are translated to provider-independent persistence failures before reaching API middleware. The application layer has dedicated movie, showtime, and reservation services; ordinary and contiguous reservations share the same booking flow. Automated tests are in a separate project.
 
 ## Requirements
 
