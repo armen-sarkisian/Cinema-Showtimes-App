@@ -22,6 +22,35 @@ CinemaShowtimes.Application ← CinemaShowtimes.Infrastructure
 
 `CinemaShowtimes.Application` owns the creation and reservation-operation contracts; `CinemaShowtimes.Infrastructure` implements them using EF Core and SQLite. The reservation contract represents each complete atomic create/confirm operation, so application code cannot separate availability checks from seat assignment. SQLite transactions and SQL are contained in Infrastructure; provider errors are translated to provider-independent persistence failures before reaching API middleware. The application layer has dedicated movie, showtime, and reservation services; ordinary and contiguous reservations share the same booking flow. Automated tests are in a separate project.
 
+## Project structure
+
+```text
+CinemaShowtimes.Api/
+  API/
+    Controllers/
+    Errors/
+CinemaShowtimes.Application/
+  DTOs/
+    Requests/       # API request models
+    Responses/      # API response models
+  Enums/
+  Errors/
+  Persistence/
+    Contracts/      # Persistence operation results and inputs
+    Enums/
+    Interfaces/     # Application-owned persistence contracts
+  Services/
+CinemaShowtimes.Domain/
+  Entities/
+  Enums/
+CinemaShowtimes.Infrastructure/
+  Enums/
+tests/
+  CinemaShowtimes.Api.Tests/
+```
+
+Request and response DTOs are kept separate under `CinemaShowtimes.Application/DTOs/Requests` and `CinemaShowtimes.Application/DTOs/Responses`. Persistence contracts and enums are likewise separated from their interfaces.
+
 ## Requirements
 
 - .NET 9 SDK
