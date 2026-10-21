@@ -1,10 +1,6 @@
-namespace CinemaShowtimes.Application.Persistence;
+using CinemaShowtimes.Application.Persistence.Enums;
 
-public enum PersistenceFailure
-{
-    TemporarilyUnavailable,
-    Conflict
-}
+namespace CinemaShowtimes.Application.Persistence.Contracts;
 
 public sealed class PersistenceOperationException(
     PersistenceFailure failure,

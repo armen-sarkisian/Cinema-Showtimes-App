@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using CinemaShowtimes.Api.Tests;
 using CinemaShowtimes.Application.DTOs;
+using CinemaShowtimes.Application.DTOs.Responses;
 using CinemaShowtimes.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;

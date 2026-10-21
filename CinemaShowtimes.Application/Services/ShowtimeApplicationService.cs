@@ -1,7 +1,10 @@
 using CinemaShowtimes.Application;
 using CinemaShowtimes.Application.DTOs;
+using CinemaShowtimes.Application.DTOs.Requests;
+using CinemaShowtimes.Application.DTOs.Responses;
 using CinemaShowtimes.Application.Errors;
-using CinemaShowtimes.Application.Persistence;
+using CinemaShowtimes.Application.Persistence.Enums;
+using CinemaShowtimes.Application.Persistence.Interfaces;
 using CinemaShowtimes.Domain.Entities;
 
 namespace CinemaShowtimes.Application.Services;

@@ -1,4 +1,5 @@
 using CinemaShowtimes.Application.Persistence;
+using CinemaShowtimes.Application.Persistence.Interfaces;
 using CinemaShowtimes.Domain.Entities;
 
 namespace CinemaShowtimes.Infrastructure;

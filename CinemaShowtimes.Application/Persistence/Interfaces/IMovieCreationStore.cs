@@ -1,6 +1,6 @@
 using CinemaShowtimes.Domain.Entities;
 
-namespace CinemaShowtimes.Application.Persistence;
+namespace CinemaShowtimes.Application.Persistence.Interfaces;
 
 public interface IMovieCreationStore
 {

@@ -1,5 +1,7 @@
 using CinemaShowtimes.Application.Services;
 using CinemaShowtimes.Application.DTOs;
+using CinemaShowtimes.Application.DTOs.Requests;
+using CinemaShowtimes.Application.DTOs.Responses;
 using Microsoft.AspNetCore.Mvc;
 
 namespace CinemaShowtimes.Api.Controllers;

@@ -1,6 +1,7 @@
-using CinemaShowtimes.Domain.Entities;
+using CinemaShowtimes.Application.Persistence.Contracts;
+using CinemaShowtimes.Application.Persistence.Enums;
 
-namespace CinemaShowtimes.Application.Persistence;
+namespace CinemaShowtimes.Application.Persistence.Interfaces;
 
 public interface IReservationOperations
 {
@@ -13,36 +14,4 @@ public interface IReservationOperations
     Task<ReservationConfirmationStatus> ConfirmAsync(
         Guid reference,
         CancellationToken cancellationToken);
-}
-
-public abstract record ReservationSeatSelection
-{
-    public sealed record Explicit(IReadOnlyList<int> SeatIds) : ReservationSeatSelection;
-    public sealed record Contiguous(int Count) : ReservationSeatSelection;
-}
-
-public enum ReservationCreationStatus
-{
-    Created,
-    ShowtimeNotFound,
-    InvalidSeats,
-    NoContiguousSeats,
-    SeatUnavailable
-}
-
-public sealed record ReservationCreationResult(
-    ReservationCreationStatus Status,
-    Reservation? Reservation = null,
-    Movie? Movie = null,
-    Auditorium? Auditorium = null,
-    int SeatCount = 0,
-    int? ConflictingSeatId = null);
-
-public enum ReservationConfirmationStatus
-{
-    Confirmed,
-    NotFound,
-    NotReserved,
-    Expired,
-    AssignmentMismatch
 }

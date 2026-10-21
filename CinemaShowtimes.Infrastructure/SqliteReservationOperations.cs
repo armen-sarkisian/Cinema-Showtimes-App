@@ -1,6 +1,10 @@
 using CinemaShowtimes.Application.Persistence;
+using CinemaShowtimes.Application.Persistence.Contracts;
+using CinemaShowtimes.Application.Persistence.Enums;
+using CinemaShowtimes.Application.Persistence.Interfaces;
 using CinemaShowtimes.Domain.Entities;
 using CinemaShowtimes.Domain.Enums;
+using CinemaShowtimes.Infrastructure.Enums;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
@@ -113,12 +117,12 @@ public sealed class SqliteReservationOperations(
         DateTimeOffset now,
         CancellationToken cancellationToken)
     {
-        if (selection is ReservationSeatSelection.Explicit explicitSeats)
+        if (selection is ExplicitReservationSeatSelection explicitSeats)
         {
             return new SeatSelectionResult(SeatSelectionStatus.Selected, explicitSeats.SeatIds);
         }
 
-        if (selection is not ReservationSeatSelection.Contiguous contiguous)
+        if (selection is not ContiguousReservationSeatSelection contiguous)
         {
             throw new ArgumentOutOfRangeException(nameof(selection));
         }
@@ -239,18 +243,6 @@ public sealed class SqliteReservationOperations(
 
         return [];
     }
-
-    private sealed record SeatCandidate(int Id, string Row, int Number);
-
-    private enum SeatSelectionStatus
-    {
-        Selected,
-        NoContiguousBlock
-    }
-
-    private sealed record SeatSelectionResult(
-        SeatSelectionStatus Status,
-        IReadOnlyList<int>? SeatIds = null);
 
     public async Task<ReservationConfirmationStatus> ConfirmAsync(
         Guid reference,
