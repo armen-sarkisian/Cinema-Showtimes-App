@@ -1,4 +1,7 @@
 using CinemaShowtimes.Application.Persistence;
+using CinemaShowtimes.Application.Persistence.Contracts;
+using CinemaShowtimes.Application.Persistence.Enums;
+using CinemaShowtimes.Application.Persistence.Interfaces;
 using CinemaShowtimes.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 

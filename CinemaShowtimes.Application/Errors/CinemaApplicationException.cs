@@ -1,3 +1,5 @@
+using CinemaShowtimes.Application.Enums;
+
 namespace CinemaShowtimes.Application.Errors;
 
 public sealed class CinemaApplicationException(
@@ -18,11 +20,4 @@ public sealed class CinemaApplicationException(
 
     public static CinemaApplicationException Conflict(string message) =>
         new(CinemaApplicationErrorKind.Conflict, "conflict", "Reservation conflict", message);
-}
-
-public enum CinemaApplicationErrorKind
-{
-    InvalidRequest,
-    NotFound,
-    Conflict
 }

@@ -1,4 +1,5 @@
-using CinemaShowtimes.Application.Persistence;
+using CinemaShowtimes.Application.Persistence.Contracts;
+using CinemaShowtimes.Application.Persistence.Enums;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 

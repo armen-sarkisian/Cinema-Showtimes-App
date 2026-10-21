@@ -1,6 +1,6 @@
 using CinemaShowtimes.Api;
 using CinemaShowtimes.Api.Errors;
-using CinemaShowtimes.Application.Persistence;
+using CinemaShowtimes.Application.Persistence.Interfaces;
 using CinemaShowtimes.Application.Services;
 using CinemaShowtimes.Infrastructure;
 using Microsoft.EntityFrameworkCore;

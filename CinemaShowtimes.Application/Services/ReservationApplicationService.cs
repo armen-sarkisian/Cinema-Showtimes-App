@@ -1,6 +1,8 @@
 using CinemaShowtimes.Application.DTOs;
 using CinemaShowtimes.Application.Errors;
-using CinemaShowtimes.Application.Persistence;
+using CinemaShowtimes.Application.Persistence.Contracts;
+using CinemaShowtimes.Application.Persistence.Enums;
+using CinemaShowtimes.Application.Persistence.Interfaces;
 using CinemaShowtimes.Domain.Enums;
 
 namespace CinemaShowtimes.Application.Services;
@@ -32,7 +34,7 @@ public sealed class ReservationApplicationService(
 
         return CreateReservationAsync(
             showtimeId,
-            new ReservationSeatSelection.Explicit(request.SeatIds),
+            new ExplicitReservationSeatSelection(request.SeatIds),
             cancellationToken);
     }
 
@@ -48,7 +50,7 @@ public sealed class ReservationApplicationService(
 
         return CreateReservationAsync(
             showtimeId,
-            new ReservationSeatSelection.Contiguous(count),
+            new ContiguousReservationSeatSelection(count),
             cancellationToken);
     }
 
@@ -92,7 +94,7 @@ public sealed class ReservationApplicationService(
                     "Every seat must exist and belong to the showtime's auditorium.");
 
             case ReservationCreationStatus.NoContiguousSeats:
-                if (selection is not ReservationSeatSelection.Contiguous contiguous)
+                if (selection is not ContiguousReservationSeatSelection contiguous)
                 {
                     throw new InvalidOperationException(
                         "An explicit seat selection cannot return a contiguous-seat failure.");
