@@ -1,6 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 
-namespace CinemaShowtimes.Application.DTOs;
+namespace CinemaShowtimes.Application.DTOs.Requests;
 
 public sealed class CreateShowtimeRequest
 {

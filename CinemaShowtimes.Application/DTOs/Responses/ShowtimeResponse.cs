@@ -1,4 +1,4 @@
-namespace CinemaShowtimes.Application.DTOs;
+namespace CinemaShowtimes.Application.DTOs.Responses;
 
 public sealed record ShowtimeResponse(
     int Id,

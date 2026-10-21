@@ -1,4 +1,6 @@
 using CinemaShowtimes.Application.DTOs;
+using CinemaShowtimes.Application.DTOs.Requests;
+using CinemaShowtimes.Application.DTOs.Responses;
 using CinemaShowtimes.Application.Errors;
 using CinemaShowtimes.Application.Persistence.Contracts;
 using CinemaShowtimes.Application.Persistence.Enums;
