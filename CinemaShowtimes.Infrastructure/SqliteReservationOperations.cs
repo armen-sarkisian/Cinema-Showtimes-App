@@ -4,6 +4,7 @@ using CinemaShowtimes.Application.Persistence.Enums;
 using CinemaShowtimes.Application.Persistence.Interfaces;
 using CinemaShowtimes.Domain.Entities;
 using CinemaShowtimes.Domain.Enums;
+using CinemaShowtimes.Domain.Rules;
 using CinemaShowtimes.Infrastructure.Enums;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -218,8 +219,10 @@ public sealed class SqliteReservationOperations(
             var isAvailable = !assignments.TryGetValue(seat.Id, out var assignment)
                 || assignment.CurrentReservationId is null
                 || assignment.CurrentReservation is { } reservation
-                && (reservation.Status == ReservationStatus.Expired
-                    || reservation.Status == ReservationStatus.Reserved && now >= reservation.ExpiresAt);
+                && ReservationAvailabilityRules.HasReleasedSeat(
+                    reservation.Status,
+                    reservation.ExpiresAt,
+                    now);
             var followsPrevious = previous is not null
                 && string.Equals(previous.Row, seat.Row, StringComparison.Ordinal)
                 && seat.Number == previous.Number + 1;

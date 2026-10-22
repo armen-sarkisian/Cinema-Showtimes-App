@@ -126,6 +126,7 @@ All request and response bodies use JSON. Showtimes are submitted as local Kyiv 
 | Method | Endpoint | Description |
 |---|---|---|
 | `GET` | `/api/showtimes` | List all showtimes, ordered by start time |
+| `GET` | `/api/showtimes/{showtimeId}/seats` | Get the seat map and current availability for a showtime |
 | `POST` | `/api/movies` | Create a movie |
 | `POST` | `/api/showtimes` | Create a showtime |
 | `POST` | `/api/showtimes/{showtimeId}/reservations` | Reserve explicit seat IDs |
@@ -153,6 +154,31 @@ Returns `200 OK` and a JSON array containing each show's ID, movie ID and title,
     "auditoriumId": 1,
     "auditoriumName": "Main Hall",
     "startTime": "2026-11-02T19:30:00"
+  }
+]
+```
+
+### Get showtime seats
+
+```http
+GET /api/showtimes/1/seats
+```
+
+Returns every seat in the selected show's auditorium. `Reserved` means the current reservation is still active; once its expiry time is reached, the seat is reported as `Available`. `Sold` means the current reservation is confirmed. A showtime that does not exist returns `404 Not Found`.
+
+```json
+[
+  {
+    "seatId": 1,
+    "row": "A",
+    "number": 1,
+    "status": "Available"
+  },
+  {
+    "seatId": 2,
+    "row": "A",
+    "number": 2,
+    "status": "Reserved"
   }
 ]
 ```

@@ -36,6 +36,7 @@ builder.Services.AddScoped<ReservationApplicationService>();
 builder.Services.AddScoped<IMovieCreationStore, EfCoreMovieCreationStore>();
 builder.Services.AddScoped<IShowtimeCreationStore, EfCoreShowtimeCreationStore>();
 builder.Services.AddScoped<IShowtimeListingStore, EfCoreShowtimeListingStore>();
+builder.Services.AddScoped<IShowtimeSeatAvailabilityStore, EfCoreShowtimeSeatAvailabilityStore>();
 builder.Services.AddScoped<IReservationOperations, SqliteReservationOperations>();
 builder.Services.AddDbContext<CinemaDbContext>(options =>
     options.UseSqlite(
