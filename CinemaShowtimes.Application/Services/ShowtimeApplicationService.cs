@@ -6,14 +6,34 @@ using CinemaShowtimes.Application.Errors;
 using CinemaShowtimes.Application.Persistence.Enums;
 using CinemaShowtimes.Application.Persistence.Interfaces;
 using CinemaShowtimes.Domain.Entities;
+using CinemaShowtimes.Domain.Enums;
+using CinemaShowtimes.Domain.Rules;
 
 namespace CinemaShowtimes.Application.Services;
 
 public sealed class ShowtimeApplicationService(
     IShowtimeCreationStore showtimes,
     IShowtimeListingStore showtimeListings,
+    IShowtimeSeatAvailabilityStore seatAvailability,
     TimeProvider timeProvider)
 {
+    public async Task<IReadOnlyList<SeatAvailabilityResponse>> GetSeatAvailabilityAsync(
+        int showtimeId,
+        CancellationToken cancellationToken)
+    {
+        var seats = await seatAvailability.GetAsync(showtimeId, cancellationToken)
+            ?? throw CinemaApplicationException.NotFound($"Showtime with ID {showtimeId} was not found.");
+        var now = timeProvider.GetUtcNow();
+
+        return seats
+            .Select(seat => new SeatAvailabilityResponse(
+                seat.SeatId,
+                seat.Row,
+                seat.Number,
+                GetSeatStatus(seat.ReservationStatus, seat.ReservationExpiresAt, now)))
+            .ToArray();
+    }
+
     public async Task<IReadOnlyList<ShowtimeListItemResponse>> GetAllShowtimesAsync(
         CancellationToken cancellationToken)
     {
@@ -85,5 +105,25 @@ public sealed class ShowtimeApplicationService(
             showtime.MovieId,
             showtime.AuditoriumId,
             TimeZoneInfo.ConvertTime(showtime.StartTime, CinemaTimeZone.Value).DateTime);
+    }
+
+    private static string GetSeatStatus(
+        ReservationStatus? status,
+        DateTimeOffset? expiresAt,
+        DateTimeOffset now)
+    {
+        if (status == ReservationStatus.Confirmed)
+        {
+            return "Sold";
+        }
+
+        if (status == ReservationStatus.Reserved
+            && expiresAt is { } reservationExpiresAt
+            && ReservationAvailabilityRules.IsActive(status.Value, reservationExpiresAt, now))
+        {
+            return "Reserved";
+        }
+
+        return "Available";
     }
 }
