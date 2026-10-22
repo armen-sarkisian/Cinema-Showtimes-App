@@ -539,7 +539,8 @@ namespace CinemaShowtimes.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("AuditoriumId", "StartTime");
+                    b.HasIndex("AuditoriumId", "StartTime")
+                        .IsUnique();
 
                     b.HasIndex("MovieId", "StartTime");
 

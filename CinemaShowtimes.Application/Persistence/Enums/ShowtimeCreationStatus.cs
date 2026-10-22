@@ -4,5 +4,6 @@ public enum ShowtimeCreationStatus
 {
     Created,
     MovieNotFound,
-    AuditoriumNotFound
+    AuditoriumNotFound,
+    AuditoriumAlreadyHasShowtime
 }

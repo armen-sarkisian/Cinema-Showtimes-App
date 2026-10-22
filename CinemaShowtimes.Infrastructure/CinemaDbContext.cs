@@ -47,7 +47,7 @@ public sealed class CinemaDbContext(DbContextOptions<CinemaDbContext> options) :
         {
             entity.Property(showtime => showtime.StartTime).HasConversion(UtcDateTimeOffsetConverter);
             entity.HasIndex(showtime => new { showtime.MovieId, showtime.StartTime });
-            entity.HasIndex(showtime => new { showtime.AuditoriumId, showtime.StartTime });
+            entity.HasIndex(showtime => new { showtime.AuditoriumId, showtime.StartTime }).IsUnique();
             entity.HasOne(showtime => showtime.Movie)
                 .WithMany(movie => movie.Showtimes)
                 .HasForeignKey(showtime => showtime.MovieId)

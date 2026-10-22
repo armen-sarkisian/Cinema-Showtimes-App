@@ -73,6 +73,9 @@ public sealed class ShowtimeApplicationService(
             ShowtimeCreationStatus.AuditoriumNotFound =>
                 throw CinemaApplicationException.NotFound(
                     $"Auditorium with ID {request.AuditoriumId} was not found."),
+            ShowtimeCreationStatus.AuditoriumAlreadyHasShowtime =>
+                throw CinemaApplicationException.Conflict(
+                    $"Auditorium with ID {request.AuditoriumId} already has a showtime at this time."),
             _ => throw new InvalidOperationException(
                 $"Unexpected showtime creation status: {result.Status}.")
         };
