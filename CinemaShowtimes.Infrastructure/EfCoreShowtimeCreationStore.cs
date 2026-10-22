@@ -3,6 +3,7 @@ using CinemaShowtimes.Application.Persistence.Contracts;
 using CinemaShowtimes.Application.Persistence.Enums;
 using CinemaShowtimes.Application.Persistence.Interfaces;
 using CinemaShowtimes.Domain.Entities;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
 namespace CinemaShowtimes.Infrastructure;
@@ -29,8 +30,35 @@ public sealed class EfCoreShowtimeCreationStore(CinemaDbContext dbContext) : ISh
                 return new ShowtimeCreationResult(ShowtimeCreationStatus.AuditoriumNotFound, null);
             }
 
+            if (await HasShowtimeAtSameTimeAsync(showtime, cancellationToken))
+            {
+                return new ShowtimeCreationResult(
+                    ShowtimeCreationStatus.AuditoriumAlreadyHasShowtime,
+                    null);
+            }
+
             dbContext.Showtimes.Add(showtime);
-            await dbContext.SaveChangesAsync(cancellationToken);
+            try
+            {
+                await dbContext.SaveChangesAsync(cancellationToken);
+            }
+            catch (DbUpdateException exception)
+                when (exception.InnerException is SqliteException
+                {
+                    SqliteExtendedErrorCode: 2067
+                })
+            {
+                dbContext.Entry(showtime).State = EntityState.Detached;
+                if (await HasShowtimeAtSameTimeAsync(showtime, cancellationToken))
+                {
+                    return new ShowtimeCreationResult(
+                        ShowtimeCreationStatus.AuditoriumAlreadyHasShowtime,
+                        null);
+                }
+
+                throw;
+            }
+
             return new ShowtimeCreationResult(ShowtimeCreationStatus.Created, showtime);
         }
         catch (Exception exception) when (SqliteExceptionTranslator.IsExpected(exception))
@@ -38,4 +66,12 @@ public sealed class EfCoreShowtimeCreationStore(CinemaDbContext dbContext) : ISh
             throw SqliteExceptionTranslator.Translate(exception);
         }
     }
+
+    private Task<bool> HasShowtimeAtSameTimeAsync(
+        Showtime showtime,
+        CancellationToken cancellationToken) =>
+        dbContext.Showtimes.AnyAsync(
+            existing => existing.AuditoriumId == showtime.AuditoriumId
+                && existing.StartTime == showtime.StartTime,
+            cancellationToken);
 }

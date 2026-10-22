@@ -118,6 +118,36 @@ public sealed class MoviesAndShowtimesTests
     }
 
     [Fact]
+    public async Task CreateShowtimeRejectsDifferentMovieAtSameAuditoriumAndTime()
+    {
+        using var factory = new CinemaApiFactory();
+        using var client = factory.CreateClient();
+        const string startTime = "2026-10-25T18:00:00";
+
+        var firstResponse = await client.PostAsJsonAsync("/api/showtimes", new
+        {
+            movieId = 1,
+            auditoriumId = 1,
+            startTime
+        });
+        var duplicateResponse = await client.PostAsJsonAsync("/api/showtimes", new
+        {
+            movieId = 2,
+            auditoriumId = 1,
+            startTime
+        });
+
+        Assert.Equal(HttpStatusCode.Created, firstResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, duplicateResponse.StatusCode);
+        Assert.StartsWith(
+            "application/problem+json",
+            duplicateResponse.Content.Headers.ContentType?.MediaType);
+        using var problem = JsonDocument.Parse(await duplicateResponse.Content.ReadAsStringAsync());
+        Assert.Equal("conflict", problem.RootElement.GetProperty("code").GetString());
+        Assert.Contains("already has a showtime at this time", problem.RootElement.GetProperty("detail").GetString());
+    }
+
+    [Fact]
     public async Task GetShowtimesReturnsAllShowtimesInStartTimeOrderWithBookingDetails()
     {
         using var factory = new CinemaApiFactory();

@@ -209,7 +209,7 @@ Content-Type: application/json
 }
 ```
 
-The movie and auditorium must exist, and the showtime must be in the future.
+The movie and auditorium must exist, and the showtime must be in the future. Within a single auditorium, two showtimes cannot have the same start time, even when they are for different movies; simultaneous showtimes in different auditoriums are allowed. A duplicate returns `409 Conflict`. A unique database index enforces this rule even for concurrent creation requests.
 
 ### Reserve explicit seats
 
