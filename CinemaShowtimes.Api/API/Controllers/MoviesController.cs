@@ -10,6 +10,10 @@ namespace CinemaShowtimes.Api.Controllers;
 [Route("api/movies")]
 public sealed class MoviesController(MovieApplicationService movies) : ControllerBase
 {
+    /// <summary>Creates a movie.</summary>
+    /// <param name="request">The movie details.</param>
+    /// <param name="cancellationToken">A token to cancel the request.</param>
+    /// <returns>The created movie.</returns>
     [HttpPost]
     [ProducesResponseType<MovieResponse>(StatusCodes.Status201Created)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
