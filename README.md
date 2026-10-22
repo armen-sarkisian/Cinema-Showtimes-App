@@ -98,6 +98,7 @@ All request and response bodies use JSON. Showtimes are submitted as local Kyiv 
 
 | Method | Endpoint | Description |
 |---|---|---|
+| `GET` | `/api/showtimes` | List all showtimes, ordered by start time |
 | `POST` | `/api/movies` | Create a movie |
 | `POST` | `/api/showtimes` | Create a showtime |
 | `POST` | `/api/showtimes/{showtimeId}/reservations` | Reserve explicit seat IDs |
@@ -105,6 +106,29 @@ All request and response bodies use JSON. Showtimes are submitted as local Kyiv 
 | `POST` | `/api/reservations/{reference}/confirm` | Confirm a reservation |
 
 Successful movie, showtime, and reservation creation returns `201 Created`; confirmation returns `200 OK`. Errors use the `application/problem+json` format with `code` and `traceId` extensions.
+
+### List showtimes
+
+```http
+GET /api/showtimes
+```
+
+Returns `200 OK` and a JSON array containing each show's ID, movie ID and title, category and year, auditorium ID and name, and local cinema start time. Results are ordered by start time, then showtime ID. The endpoint includes all showtimes; clients can use the returned showtime `id` when creating a reservation.
+
+```json
+[
+  {
+    "id": 1,
+    "movieId": 1,
+    "movieTitle": "The Grand Adventure",
+    "category": "Adventure",
+    "year": 2024,
+    "auditoriumId": 1,
+    "auditoriumName": "Main Hall",
+    "startTime": "2026-11-02T19:30:00"
+  }
+]
+```
 
 ### Create a movie
 

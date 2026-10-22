@@ -11,8 +11,27 @@ namespace CinemaShowtimes.Application.Services;
 
 public sealed class ShowtimeApplicationService(
     IShowtimeCreationStore showtimes,
+    IShowtimeListingStore showtimeListings,
     TimeProvider timeProvider)
 {
+    public async Task<IReadOnlyList<ShowtimeListItemResponse>> GetAllShowtimesAsync(
+        CancellationToken cancellationToken)
+    {
+        var showtimeItems = await showtimeListings.GetAllAsync(cancellationToken);
+
+        return showtimeItems
+            .Select(showtime => new ShowtimeListItemResponse(
+                showtime.Id,
+                showtime.MovieId,
+                showtime.MovieTitle,
+                showtime.Category,
+                showtime.Year,
+                showtime.AuditoriumId,
+                showtime.AuditoriumName,
+                TimeZoneInfo.ConvertTime(showtime.StartTime, CinemaTimeZone.Value).DateTime))
+            .ToArray();
+    }
+
     public async Task<ShowtimeResponse> CreateShowtimeAsync(
         CreateShowtimeRequest request,
         CancellationToken cancellationToken)

@@ -118,6 +118,42 @@ public sealed class MoviesAndShowtimesTests
     }
 
     [Fact]
+    public async Task GetShowtimesReturnsAllShowtimesInStartTimeOrderWithBookingDetails()
+    {
+        using var factory = new CinemaApiFactory();
+        using var client = factory.CreateClient();
+
+        var laterShowtimeResponse = await client.PostAsJsonAsync("/api/showtimes", new
+        {
+            movieId = 1,
+            auditoriumId = 1,
+            startTime = "2026-10-25T20:00:00"
+        });
+        var earlierShowtimeResponse = await client.PostAsJsonAsync("/api/showtimes", new
+        {
+            movieId = 2,
+            auditoriumId = 1,
+            startTime = "2026-10-25T18:00:00"
+        });
+        Assert.Equal(HttpStatusCode.Created, laterShowtimeResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, earlierShowtimeResponse.StatusCode);
+
+        var response = await client.GetAsync("/api/showtimes");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var showtimes = await response.Content.ReadFromJsonAsync<ShowtimeListItemResponse[]>();
+        Assert.NotNull(showtimes);
+        Assert.Equal(2, showtimes.Length);
+        Assert.Equal(2, showtimes[0].MovieId);
+        Assert.Equal("Midnight Mystery", showtimes[0].MovieTitle);
+        Assert.Equal(1, showtimes[0].AuditoriumId);
+        Assert.Equal("Main Hall", showtimes[0].AuditoriumName);
+        Assert.Equal(new DateTime(2026, 10, 25, 18, 0, 0), showtimes[0].StartTime);
+        Assert.Equal(1, showtimes[1].MovieId);
+        Assert.Equal(new DateTime(2026, 10, 25, 20, 0, 0), showtimes[1].StartTime);
+    }
+
+    [Fact]
     public async Task CreateShowtimeWithMissingMovieReturnsNotFoundProblem()
     {
         using var factory = new CinemaApiFactory();
