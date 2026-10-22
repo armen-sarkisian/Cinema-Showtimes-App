@@ -67,7 +67,7 @@ dotnet run --project .\CinemaShowtimes.Api\CinemaShowtimes.Api.csproj
 ```
 
 The HTTP launch profile listens on `http://localhost:5206`; Swagger UI is at `http://localhost:5206/swagger`.
-The launch profile sets the `Development` environment. In that environment, startup calls EF Core `EnsureCreated` and seeds three movies, one auditorium, and 50 seats (rows A-E, seats 1-10).
+The launch profile sets the `Development` environment. In that environment, startup applies pending EF Core migrations and seeds three movies, one auditorium, and 50 seats (rows A-E, seats 1-10).
 
 ## SQLite configuration and persistence
 
@@ -90,7 +90,34 @@ $env:ConnectionStrings__Cinema = "Data Source=$PWD\cinema-showtimes-app.db"
 dotnet run --project .\CinemaShowtimes.Api\CinemaShowtimes.Api.csproj
 ```
 
-The schema is automatically created only in the `Development` environment. This starter has no EF Core migrations. `EnsureCreated` does not update an existing schema. In other environments the schema must be provisioned separately before startup; this repository does not currently include a migration or a runnable database-update command.
+The initial schema and seed data are managed by EF Core migrations. Development startup applies pending migrations automatically; for other environments, apply migrations as a deployment step before starting the API.
+
+### Create and apply migrations
+
+EF Core tooling version `9.0.21` matches the EF Core packages used by the project. Install or update the global tool:
+
+```powershell
+dotnet tool update --global dotnet-ef --version 9.0.21 --allow-downgrade
+```
+
+Create a migration from the repository root:
+
+```powershell
+dotnet ef migrations add MigrationName `
+  --project .\CinemaShowtimes.Infrastructure\CinemaShowtimes.Infrastructure.csproj `
+  --startup-project .\CinemaShowtimes.Api\CinemaShowtimes.Api.csproj `
+  --context CinemaDbContext `
+  --output-dir Migrations
+```
+
+Apply it to the configured SQLite database:
+
+```powershell
+dotnet ef database update `
+  --project .\CinemaShowtimes.Infrastructure\CinemaShowtimes.Infrastructure.csproj `
+  --startup-project .\CinemaShowtimes.Api\CinemaShowtimes.Api.csproj `
+  --context CinemaDbContext
+```
 
 ## API endpoints
 
